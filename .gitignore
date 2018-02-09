@@ -17,6 +17,7 @@ decaf/
 submission/
 cfg/
 darknet
+robot
 libdarknet.a
 libdarknet.so
 .fuse*

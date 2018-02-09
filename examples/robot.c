@@ -6,8 +6,10 @@
 
 #define IMG_PREFIX "/home/nvidia/cap/capture_"
 #define VIDEO_FILE "/home/nvidia/capture.avi"
-#define CAM_CAP "video/x-raw, width=640, height=480, framerate=30/1"
-#define CAM_DEV "/dev/video1"
+//#define CAM_CAP "video/x-raw, width=640, height=480, framerate=30/1"
+//#define CAM_DEV "/dev/video1"
+#define CAM_CAP "video/x-raw, width=320, height=240, framerate=15/1"
+#define CAM_DEV "/dev/video0"
 #define STREAM_DEST_HOST "192.168.0.73"
 #define STREAM_DEST_PORT "9999"
 
@@ -21,9 +23,12 @@
 //#define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! jpegenc ! queue ! avimux ! filesink location=" VIDEO_FILE " t. ! appsink"
 //#define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! jpegenc ! avimux ! filesink location=" VIDEO_FILE " t. ! queue ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
 //#define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
-#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! videoconvert ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
+//#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! videoconvert ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
 //#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP ", format=YUY2 ! tee name=t ! queue ! videoconvert ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
 //#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP ", format=I420 ! tee name=t ! queue ! videoconvert ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
+//#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! videoconvert ! x264enc tune=zerolatency ! rtph264pay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
+//#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! videoconvert ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
+#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! videoconvert ! queue ! x264enc tune=zerolatency bitrate=256 speed-preset=superfast ! rtph264pay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
 // TODO Can we call jpegenc just once?
 
 

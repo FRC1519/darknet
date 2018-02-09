@@ -1,0 +1,20 @@
+#!/bin/bash
+
+if [[ $(hostname) == robin ]]; then
+    gpu=""
+    opt="-Og -g3"
+    cuda=""
+    sudo=""
+else
+    gpu="-DGPU -I/usr/local/cuda/include/ -DCUDNN"
+    opt="-Ofast"
+    cuda="-L/usr/local/cuda/lib64 -lcuda -lcudart -lcublas -lcurand -lcudnn -lstdc++"
+    sudo="sudo"
+fi
+
+$sudo rm -f ~/cap/capture_*.jpg /tmp/robotdot/* ~/capture.avi && \
+	gcc -Iinclude/ -Isrc/ -DOPENCV `pkg-config --cflags opencv` $gpu -Wall -Wno-unknown-pragmas -Wfatal-errors -fPIC $opt -c ./examples/robot.c -o obj/robot.o && \
+	gcc -Iinclude/ -Isrc/ -DOPENCV `pkg-config --cflags opencv` $gpu -Wall -Wno-unknown-pragmas -Wfatal-errors -fPIC $opt obj/robot.o libdarknet.a -o robot -lm -pthread  `pkg-config --libs opencv` $cuda libdarknet.a && \
+	$sudo env GST_DEBUG=2 GST_DEBUG_DUMP_DOT_DIR=/tmp/robotdot ./robot cfg/obj.data cfg/tiny-yolo-obj2.cfg backup/tiny-yolo-obj2_4600.weights
+
+[[ $sudo ]] && sudo chown -R nvidia ~/cap || :
