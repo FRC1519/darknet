@@ -15,6 +15,4 @@ else
     exit 1
 fi
 
-	gcc -Iinclude/ -Isrc/ -DOPENCV `pkg-config --cflags opencv` $gpu -Wall -Wno-unknown-pragmas -Wfatal-errors -fPIC $opt -c ./examples/robot.c -o obj/robot.o && \
-	gcc -Iinclude/ -Isrc/ -DOPENCV `pkg-config --cflags opencv` $gpu -Wall -Wno-unknown-pragmas -Wfatal-errors -fPIC $opt obj/robot.o libdarknet.a -o robot -lm -pthread  `pkg-config --libs opencv` $cuda libdarknet.a && \
-	$sudo env GST_DEBUG=2 ./robot cfg/obj.data cfg/tiny-yolo-obj2.cfg backup/tiny-yolo-obj2_4600.weights
+make && $sudo env GST_DEBUG=2 ./robot --camera 0 --width 640 --height 480 --fps 30 --ip 192.168.0.44 --port 9999 cfg/obj.data cfg/tiny-yolo-obj2.cfg backup/tiny-yolo-obj2_4600.weights

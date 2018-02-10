@@ -1,89 +1,8 @@
-#include "darknet.h"
-
 #include <stdlib.h>
 #include <stdio.h>
+#include <getopt.h>
 
-#define VIDEO_FILE "/home/nvidia/capture.avi"
-#ifdef GPU
-#define CAM_CAP "image/jpeg, width=640, height=480, framerate=30/1"
-#else
-#define CAM_CAP "image/jpeg, width=320, height=240, framerate=15/1"
-#endif
-#define CAM_DEV "/dev/video0"
-#define STREAM_DEST_HOST "192.168.0.73"
-#define STREAM_DEST_PORT "9999"
-
-#define GSTREAMER_COMMAND "filesrc location=" VIDEO_FILE " ! avidemux ! tee name=t ! queue ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! jpegdec ! videoconvert ! appsink"
-//#define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! avimux ! filesink location=" VIDEO_FILE " t. ! queue ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! jpegdec ! videoconvert ! appsink"
-
-void robot_demo(char *cfgfile, char *weightfile, float thresh, char **names, int classes, int avg_frames, float hier, int w, int h);
-
-/*
- * This code is based on the code that runs "darknet detector demo".
- * It is a trimmed down and edited version of darknet.c, detector.c, and demo.c
- */
-
-int main(int argc, char **argv)
-{
-
-/* TODO What do do with this GPU detection? */
-    gpu_index = find_int_arg(argc, argv, "-i", 0);
-    if(find_arg(argc, argv, "-nogpu")) {
-        gpu_index = -1;
-    }
-
-#ifndef GPU
-    gpu_index = -1;
-#else
-    if(gpu_index >= 0){
-        cuda_set_device(gpu_index);
-    }
-#endif
-
-    float thresh = find_float_arg(argc, argv, "-thresh", .24);
-    float hier_thresh = find_float_arg(argc, argv, "-hier", .5);
-    int avg = find_int_arg(argc, argv, "-avg", 3);
-    if(argc < 4){
-        fprintf(stderr, "usage: %s %s [cfg] [weights (optional)]\n", argv[0], argv[1]);
-        return 0;
-    }
-    char *gpu_list = find_char_arg(argc, argv, "-gpus", 0);
-    int *gpus = 0;
-    int gpu = 0;
-    int ngpus = 0;
-    if(gpu_list){
-        printf("%s\n", gpu_list);
-        int len = strlen(gpu_list);
-        ngpus = 1;
-        int i;
-        for(i = 0; i < len; ++i){
-            if (gpu_list[i] == ',') ++ngpus;
-        }
-        gpus = calloc(ngpus, sizeof(int));
-        for(i = 0; i < ngpus; ++i){
-            gpus[i] = atoi(gpu_list);
-            gpu_list = strchr(gpu_list, ',')+1;
-        }
-    } else {
-        gpu = gpu_index;
-        gpus = &gpu;
-        ngpus = 1;
-    }
-
-    int width = find_int_arg(argc, argv, "-w", 0);
-    int height = find_int_arg(argc, argv, "-h", 0);
-
-    char *datacfg = argv[1];
-    char *cfg = argv[2];
-    char *weights = (argc > 3) ? argv[3] : 0;
-
-    list *options = read_data_cfg(datacfg);
-    int classes = option_find_int(options, "classes", 20);
-    char *name_list = option_find_str(options, "names", "data/names.list");
-    char **names = get_labels(name_list);
-
-    robot_demo(cfg, weights, thresh, names, classes, avg, hier_thresh, width, height);
-}
+#include "darknet.h"
 
 #include "network.h"
 #include "detection_layer.h"
@@ -95,26 +14,79 @@ int main(int argc, char **argv)
 #include "image.h"
 #include "demo.h"
 
-static char **demo_names;
-static int demo_classes;
+/*
+ * This code is based on the code that runs "darknet detector demo".
+ * It is a trimmed down and edited version of darknet.c, detector.c, and demo.c
+ */
 
-static float **probs;
-static box *boxes;
-static network *net;
-static image buff [3];
-static image buff_letter[3];
-static int buff_index = 0;
-static CvCapture * cap;
-static float demo_thresh = 0;
-static float demo_hier = .5;
-static int running = 0;
+/* Default configuration, overridable on the command line */
+int camera_port = 0;
+char *stream_dest_host = "192.168.0.2";
+int stream_dest_port = 1519;
+int cap_width = 640;
+int cap_height = 480;
+int cap_fps = 30;
+char *video_filename = "/home/nvidia/capture.avi";
 
-static int demo_frame = 3;
-static int demo_detections = 0;
-static float **predictions;
-static int demo_index = 0;
-static float *avg;
-static int demo_done = 0;
+float thresh = .24;
+float hier = .5;
+int avg_frames = 3;
+int w = 0; /* TODO Compare to cap_width */
+int h = 0; /* TODO Compare to cap_height */
+
+float **probs;
+box *boxes;
+network *net;
+image buff [3];
+image buff_letter[3];
+int buff_index = 0;
+CvCapture *cap;
+int running = 0;
+
+int detections = 0;
+float **predictions;
+int demo_index = 0;
+float *avg;
+int done = 0;
+char **names;
+int classes;
+
+void parse_options(int argc, char **argv) {
+    struct option long_opts[] = {
+        {"hier",   required_argument, 0, 'h'},
+        {"gpu",    required_argument, 0, 'i'},
+        {"thresh", required_argument, 0, 't'},
+        {"avg",    required_argument, 0, 'a'},
+        {"width",  required_argument, 0, 'W'},
+        {"height", required_argument, 0, 'H'},
+        {"ip",     required_argument, 0, 'I'},
+        {"port",   required_argument, 0, 'p'},
+        {"fps",    required_argument, 0, 'f'},
+        {"video",  required_argument, 0, 'V'},
+        {"camera", required_argument, 0, 'c'},
+        {0, 0, 0, 0}
+    };
+
+    int long_index = 0;
+    int opt;
+    while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:I:p:f:V:c:", long_opts, &long_index)) != -1) {
+        switch (opt) {
+            case 'h': hier = atof(optarg); break;
+            case 'i': gpu_index = atoi(optarg); break;
+            case 't': thresh = atof(optarg); break;
+            case 'a': avg_frames = atoi(optarg); break;
+            case 'W': w = atoi(optarg); break;
+            case 'H': h = atoi(optarg); break;
+            case 'I': stream_dest_host = optarg; break;
+            case 'p': stream_dest_port = atoi(optarg); break;
+            case 'f': cap_fps = atoi(optarg); break;
+            case 'V': video_filename = optarg; break;
+            case 'c': camera_port = atoi(optarg); break;
+            default:
+                error("usage error");
+        }
+    }
+}
 
 void log_detections(image im, int num, float thresh, box *boxes, float **probs, char **names, int classes)
 {
@@ -165,12 +137,12 @@ void *detect_in_thread(void *ptr)
     float *prediction = network_predict(net, X);
 
     memcpy(predictions[demo_index], prediction, l.outputs*sizeof(float));
-    mean_arrays(predictions, demo_frame, l.outputs, avg);
+    mean_arrays(predictions, avg_frames, l.outputs, avg);
     l.output = avg;
     if(l.type == DETECTION){
-        get_detection_boxes(l, 1, 1, demo_thresh, probs, boxes, 0);
+        get_detection_boxes(l, 1, 1, thresh, probs, boxes, 0);
     } else if (l.type == REGION){
-        get_region_boxes(l, buff[0].w, buff[0].h, net->w, net->h, demo_thresh, probs, boxes, 0, 0, 0, demo_hier, 1);
+        get_region_boxes(l, buff[0].w, buff[0].h, net->w, net->h, thresh, probs, boxes, 0, 0, 0, hier, 1);
     } else {
         error("Last layer must produce detections\n");
     }
@@ -178,9 +150,9 @@ void *detect_in_thread(void *ptr)
 
     printf("Objects:\n\n");
     image display = buff[(buff_index+2) % 3];
-    log_detections(display, demo_detections, demo_thresh, boxes, probs, demo_names, demo_classes);
+    log_detections(display, detections, thresh, boxes, probs, names, classes);
 
-    demo_index = (demo_index + 1)%demo_frame;
+    demo_index = (demo_index + 1) % avg_frames;
     running = 0;
     return 0;
 }
@@ -189,34 +161,62 @@ void *fetch_in_thread(void *ptr)
 {
     int status = fill_image_from_stream(cap, buff[buff_index]);
     letterbox_image_into(buff[buff_index], net->w, net->h, buff_letter[buff_index]);
-    if(status == 0) demo_done = 1;
+    if (status == 0) done = 1;
     return 0;
 }
 
-void robot_demo(char *cfgfile, char *weightfile, float thresh, char **names, int classes, int avg_frames, float hier, int w, int h)
+int main(int argc, char **argv)
 {
-    demo_frame = avg_frames;
-    predictions = calloc(demo_frame, sizeof(float*));
-    demo_names = names;
-    demo_classes = classes;
-    demo_thresh = thresh;
-    demo_hier = hier;
+#ifndef GPU
+    gpu_index = -1;
+#endif
+
+    /* Process command-line options */
+    parse_options(argc, argv);
+
+    /* Process data file parameters */
+    if (argc != optind + 3) {
+        fprintf(stderr, "usage: %s [datacfg] [cfg] [weights]\n", argv[0]);
+        exit(1);
+    }
+    char *datacfg = argv[optind++];
+    char *cfgfile = argv[optind++];
+    char *weightfile = argv[optind++];
+
+    /* Initialize GPU */
+    if (gpu_index >= 0){
+        cuda_set_device(gpu_index);
+    }
+
+    /* Read in data config */
+    list *options = read_data_cfg(datacfg);
+    classes = option_find_int(options, "classes", 20);
+    char *name_list = option_find_str(options, "names", "data/names.list");
+    names = get_labels(name_list);
+
+    /* Load in network from config file and weights */
+    predictions = calloc(avg_frames, sizeof(float*));
     net = load_network(cfgfile, weightfile, 0);
     set_batch_network(net, 1);
-    pthread_t detect_thread;
-    pthread_t fetch_thread;
 
-    printf("Connecting to GStreamer (%s)\n", GSTREAMER_COMMAND);
-    cap = cvCreateFileCaptureWithPreference(GSTREAMER_COMMAND, CV_CAP_GSTREAMER);
-    if (!cap) error("Couldn't connect to GStreamer.\n");
-    printf("Connected to GStreamer.\n");
+    /* Build up GStreamer pipepine */
+    char gstreamer_cmd[512] = { '\0' };
+    //snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "v4l2src device=/dev/video%d ! image/jpeg, width=%d, height=%d, framerate=%d ! tee name=t ! queue ! avimux ! filesink location=%s t. ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", camera_port, cap_width, cap_height, cap_fps, video_filename, stream_dest_host, stream_dest_port);
+    snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "filesrc location=%s ! avidemux ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, stream_dest_host, stream_dest_port);
+
+    /* Use GStreamer to acquire video feed */
+    printf("Connecting to GStreamer (%s)\n", gstreamer_cmd);
+    cap = cvCreateFileCaptureWithPreference(gstreamer_cmd, CV_CAP_GSTREAMER);
+    if (!cap)
+        error("Couldn't connect to GStreamer\n");
+    printf("Connected to GStreamer\n");
 
     layer l = net->layers[net->n-1];
-    demo_detections = l.n*l.w*l.h;
+    detections = l.n*l.w*l.h;
     int j;
 
     avg = (float *) calloc(l.outputs, sizeof(float));
-    for(j = 0; j < demo_frame; ++j) predictions[j] = (float *) calloc(l.outputs, sizeof(float));
+    for(j = 0; j < avg_frames; ++j) predictions[j] = (float *) calloc(l.outputs, sizeof(float));
 
     boxes = (box *)calloc(l.w*l.h*l.n, sizeof(box));
     probs = (float **)calloc(l.w*l.h*l.n, sizeof(float *));
@@ -230,8 +230,10 @@ void robot_demo(char *cfgfile, char *weightfile, float thresh, char **names, int
     buff_letter[2] = letterbox_image(buff[0], net->w, net->h);
 
     int count = 1;
+    pthread_t detect_thread;
+    pthread_t fetch_thread;
 
-    while (!demo_done) {
+    while (!done) {
         printf("\nFRAME #%d\n", count);
         buff_index = (buff_index + 1) % 3;
 
