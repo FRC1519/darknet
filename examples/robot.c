@@ -1,36 +1,20 @@
 #include "darknet.h"
 
-#include <time.h>
 #include <stdlib.h>
 #include <stdio.h>
 
-#define IMG_PREFIX "/home/nvidia/cap/capture_"
 #define VIDEO_FILE "/home/nvidia/capture.avi"
-//#define CAM_CAP "video/x-raw, width=640, height=480, framerate=30/1"
-//#define CAM_DEV "/dev/video1"
-#define CAM_CAP "video/x-raw, width=320, height=240, framerate=15/1"
+#ifdef GPU
+#define CAM_CAP "image/jpeg, width=640, height=480, framerate=30/1"
+#else
+#define CAM_CAP "image/jpeg, width=320, height=240, framerate=15/1"
+#endif
 #define CAM_DEV "/dev/video0"
 #define STREAM_DEST_HOST "192.168.0.73"
 #define STREAM_DEST_PORT "9999"
 
-//#define GSTREAMER_COMMAND "videotestsrc ! video/x-raw, width=1024, height=768 ! appsink"
-//#define GSTREAMER_COMMAND "v4l2src ! video/x-raw,framerate=15/1,width=320,height=240 ! videoconvert ! appsink"
-//#define GSTREAMER_COMMAND "filesrc location=/home/bbell/Downloads/cubesTest.mp4 ! decodebin ! videoconvert ! appsink"
-//#define GSTREAMER_COMMAND "filesrc location=/home/bbell/Downloads/cubesTest.mp4 ! qtdemux ! queue ! h264parse ! vaapidecodebin ! videoconvert ! appsink"
-//#define GSTREAMER_COMMAND "filesrc location=/home/bbell/Downloads/cubesTest.mp4 ! qtdemux ! vaapih264dec ! videoconvert ! appsink "
-//#define GSTREAMER_COMMAND "filesrc location=/home/bbell/Downloads/cubesTest.mp4 ! qtdemux ! avdec_h264 ! videoconvert ! video/x-raw ! appsink"
-//#define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! appsink"
-//#define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! jpegenc ! queue ! avimux ! filesink location=" VIDEO_FILE " t. ! appsink"
-//#define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! jpegenc ! avimux ! filesink location=" VIDEO_FILE " t. ! queue ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
-//#define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
-//#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! videoconvert ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
-//#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP ", format=YUY2 ! tee name=t ! queue ! videoconvert ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
-//#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP ", format=I420 ! tee name=t ! queue ! videoconvert ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
-//#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! videoconvert ! x264enc tune=zerolatency ! rtph264pay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
-//#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! videoconvert ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
-#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! videoconvert ! queue ! x264enc tune=zerolatency bitrate=256 speed-preset=superfast ! rtph264pay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
-// TODO Can we call jpegenc just once?
-
+#define GSTREAMER_COMMAND "filesrc location=" VIDEO_FILE " ! avidemux ! tee name=t ! queue ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! jpegdec ! videoconvert ! appsink"
+//#define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! avimux ! filesink location=" VIDEO_FILE " t. ! queue ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! jpegdec ! videoconvert ! appsink"
 
 void robot_demo(char *cfgfile, char *weightfile, float thresh, char **names, int classes, int avg_frames, float hier, int w, int h);
 
@@ -110,7 +94,6 @@ int main(int argc, char **argv)
 #include "box.h"
 #include "image.h"
 #include "demo.h"
-#include <sys/time.h>
 
 static char **demo_names;
 static int demo_classes;
@@ -252,14 +235,9 @@ void robot_demo(char *cfgfile, char *weightfile, float thresh, char **names, int
         printf("\nFRAME #%d\n", count);
         buff_index = (buff_index + 1) % 3;
 
-        /* TODO Notify, instead of constantly creating and destroying threads */
+        /* TODO Notify long-running threads, instead of constantly creating and destroying threads */
         if(pthread_create(&fetch_thread, 0, fetch_in_thread, 0)) error("Thread creation failed");
         if(pthread_create(&detect_thread, 0, detect_in_thread, 0)) error("Thread creation failed");
-
-        /* Save image to file (TODO Disable) */
-        char name[256];
-        sprintf(name, "%s%08d", IMG_PREFIX, count);
-        save_image(buff[(buff_index + 1)%3], name);
 
         pthread_join(fetch_thread, 0);
         pthread_join(detect_thread, 0);
