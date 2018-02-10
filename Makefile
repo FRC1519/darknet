@@ -63,16 +63,22 @@ ifeq ($(GPU), 1)
 LDFLAGS+= -lstdc++ 
 OBJ+=convolutional_kernels.o deconvolutional_kernels.o activation_kernels.o im2col_kernels.o col2im_kernels.o blas_kernels.o crop_layer_kernels.o dropout_layer_kernels.o maxpool_layer_kernels.o avgpool_layer_kernels.o
 endif
+ROBOT_OBJ=robot.o
+ROBOT_EXEC=robot
 
 EXECOBJ = $(addprefix $(OBJDIR), $(EXECOBJA))
 OBJS = $(addprefix $(OBJDIR), $(OBJ))
+ROBOT_OBJS = $(addprefix $(OBJDIR), $(ROBOT_OBJ))
 DEPS = $(wildcard src/*.h) Makefile include/darknet.h
 
 #all: obj backup results $(SLIB) $(ALIB) $(EXEC)
-all: obj  results $(SLIB) $(ALIB) $(EXEC)
+all: obj  results $(SLIB) $(ALIB) $(EXEC) $(ROBOT_EXEC)
 
 
 $(EXEC): $(EXECOBJ) $(ALIB)
+	$(CC) $(COMMON) $(CFLAGS) $^ -o $@ $(LDFLAGS) $(ALIB)
+
+$(ROBOT_EXEC): $(ROBOT_OBJS) $(ALIB)
 	$(CC) $(COMMON) $(CFLAGS) $^ -o $@ $(LDFLAGS) $(ALIB)
 
 $(ALIB): $(OBJS)
