@@ -4,14 +4,28 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#define IMG_PREFIX "capture_"
+#define IMG_PREFIX "/home/nvidia/cap/capture_"
+#define VIDEO_FILE "/home/nvidia/capture.avi"
+#define CAM_CAP "video/x-raw, width=640, height=480, framerate=30/1"
+#define CAM_DEV "/dev/video1"
+#define STREAM_DEST_HOST "192.168.0.73"
+#define STREAM_DEST_PORT "9999"
 
 //#define GSTREAMER_COMMAND "videotestsrc ! video/x-raw, width=1024, height=768 ! appsink"
 //#define GSTREAMER_COMMAND "v4l2src ! video/x-raw,framerate=15/1,width=320,height=240 ! videoconvert ! appsink"
 //#define GSTREAMER_COMMAND "filesrc location=/home/bbell/Downloads/cubesTest.mp4 ! decodebin ! videoconvert ! appsink"
 //#define GSTREAMER_COMMAND "filesrc location=/home/bbell/Downloads/cubesTest.mp4 ! qtdemux ! queue ! h264parse ! vaapidecodebin ! videoconvert ! appsink"
 //#define GSTREAMER_COMMAND "filesrc location=/home/bbell/Downloads/cubesTest.mp4 ! qtdemux ! vaapih264dec ! videoconvert ! appsink "
-#define GSTREAMER_COMMAND "filesrc location=/home/bbell/Downloads/cubesTest.mp4 ! qtdemux ! avdec_h264 ! videoconvert ! video/x-raw ! appsink"
+//#define GSTREAMER_COMMAND "filesrc location=/home/bbell/Downloads/cubesTest.mp4 ! qtdemux ! avdec_h264 ! videoconvert ! video/x-raw ! appsink"
+//#define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! appsink"
+//#define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! jpegenc ! queue ! avimux ! filesink location=" VIDEO_FILE " t. ! appsink"
+//#define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! jpegenc ! avimux ! filesink location=" VIDEO_FILE " t. ! queue ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
+//#define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
+#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP " ! tee name=t ! queue ! videoconvert ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
+//#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP ", format=YUY2 ! tee name=t ! queue ! videoconvert ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
+//#  define GSTREAMER_COMMAND "v4l2src device=" CAM_DEV " ! " CAM_CAP ", format=I420 ! tee name=t ! queue ! videoconvert ! jpegenc ! rtpjpegpay ! udpsink host=" STREAM_DEST_HOST " port=" STREAM_DEST_PORT " t. ! appsink"
+// TODO Can we call jpegenc just once?
+
 
 void robot_demo(char *cfgfile, char *weightfile, float thresh, char **names, int classes, int avg_frames, float hier, int w, int h);
 
@@ -206,8 +220,8 @@ void robot_demo(char *cfgfile, char *weightfile, float thresh, char **names, int
 
     printf("Connecting to GStreamer (%s)\n", GSTREAMER_COMMAND);
     cap = cvCreateFileCaptureWithPreference(GSTREAMER_COMMAND, CV_CAP_GSTREAMER);
-    if (!cap) error("Couldn't connect to camera.\n");
-    printf("Connected to camera.\n");
+    if (!cap) error("Couldn't connect to GStreamer.\n");
+    printf("Connected to GStreamer.\n");
 
     layer l = net->layers[net->n-1];
     demo_detections = l.n*l.w*l.h;

@@ -1,6 +1,7 @@
 #rm -f capture_*.jpg; gcc -Iinclude/ -Isrc/ -DOPENCV `pkg-config --cflags opencv`  -Wall -Wno-unknown-pragmas -Wfatal-errors -fPIC -Og -g3 -DOPENCV -c ./examples/robot.c -o obj/robot.o && gcc -Iinclude/ -Isrc/ -DOPENCV `pkg-config --cflags opencv`  -Wall -Wno-unknown-pragmas -Wfatal-errors -fPIC -Og -g3 -DOPENCV obj/robot.o libdarknet.a -o robot -lm -pthread  `pkg-config --libs opencv`  libdarknet.a && GST_DEBUG=3 GST_DEBUG_DUMP_DOT_DIR=$PWD/robotdot ./robot cfg/obj.data cfg/tiny-yolo-obj2.cfg backup/tiny-yolo-obj2_4600.weights
 
-rm -f capture_*.jpg && \
+sudo rm -f ~/cap/capture_*.jpg /tmp/robotdot/* ~/capture.avi && \
 	gcc -Iinclude/ -Isrc/ -DOPENCV `pkg-config --cflags opencv`  -DGPU -I/usr/local/cuda/include/ -DCUDNN  -Wall -Wno-unknown-pragmas -Wfatal-errors -fPIC -Ofast -DOPENCV -DGPU -DCUDNN -c ./examples/robot.c -o obj/robot.o && \
 	gcc -Iinclude/ -Isrc/ -DOPENCV `pkg-config --cflags opencv`  -DGPU -I/usr/local/cuda/include/ -DCUDNN  -Wall -Wno-unknown-pragmas -Wfatal-errors -fPIC -Ofast -DOPENCV -DGPU -DCUDNN obj/robot.o libdarknet.a -o robot -lm -pthread  `pkg-config --libs opencv`  -L/usr/local/cuda/lib64 -lcuda -lcudart -lcublas -lcurand -lcudnn -lstdc++  libdarknet.a && \
-	GST_DEBUG=3 GST_DEBUG_DUMP_DOT_DIR=$HOME/robotdot ./robot cfg/obj.data cfg/tiny-yolo-obj2.cfg backup/tiny-yolo-obj2_4600.weights
+	sudo env GST_DEBUG=3 GST_DEBUG_DUMP_DOT_DIR=/tmp/robotdot ./robot cfg/obj.data cfg/tiny-yolo-obj2.cfg backup/tiny-yolo-obj2_4600.weights
+sudo chown -R nvidia ~/cap
