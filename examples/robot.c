@@ -20,6 +20,7 @@
  */
 
 /* Default configuration, overridable on the command line */
+int opt_replay = 0;
 int camera_port = 0;
 char *stream_dest_host = "192.168.0.2";
 int stream_dest_port = 1519;
@@ -54,23 +55,24 @@ pthread_barrier_t start_barrier, done_barrier;
 
 void parse_options(int argc, char **argv) {
     struct option long_opts[] = {
-        {"hier",   required_argument, 0, 'h'},
-        {"gpu",    required_argument, 0, 'i'},
-        {"thresh", required_argument, 0, 't'},
-        {"avg",    required_argument, 0, 'a'},
-        {"width",  required_argument, 0, 'W'},
-        {"height", required_argument, 0, 'H'},
-        {"ip",     required_argument, 0, 'I'},
-        {"port",   required_argument, 0, 'p'},
-        {"fps",    required_argument, 0, 'f'},
-        {"video",  required_argument, 0, 'V'},
-        {"camera", required_argument, 0, 'c'},
-        {0, 0, 0, 0}
+        {"hier",   required_argument, NULL, 'h'},
+        {"gpu",    required_argument, NULL, 'i'},
+        {"thresh", required_argument, NULL, 't'},
+        {"avg",    required_argument, NULL, 'a'},
+        {"width",  required_argument, NULL, 'W'},
+        {"height", required_argument, NULL, 'H'},
+        {"ip",     required_argument, NULL, 'I'},
+        {"port",   required_argument, NULL, 'p'},
+        {"fps",    required_argument, NULL, 'f'},
+        {"video",  required_argument, NULL, 'V'},
+        {"camera", required_argument, NULL, 'c'},
+        {"replay", no_argument,       NULL, 'R'},
+        {NULL, 0, NULL, 0}
     };
 
     int long_index = 0;
     int opt;
-    while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:I:p:f:V:c:", long_opts, &long_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:I:p:f:V:c:R", long_opts, &long_index)) != -1) {
         switch (opt) {
             case 'h': hier = atof(optarg); break;
             case 'i': gpu_index = atoi(optarg); break;
@@ -83,6 +85,7 @@ void parse_options(int argc, char **argv) {
             case 'f': cap_fps = atoi(optarg); break;
             case 'V': video_filename = optarg; break;
             case 'c': camera_port = atoi(optarg); break;
+            case 'R': opt_replay = 1; break;
             default:
                 error("usage error");
         }
@@ -97,7 +100,7 @@ void log_detections(image im, int num, float thresh, box *boxes, float **probs, 
         char labelstr[4096] = {0};
         int class = -1;
 
-        // TODO Change to finding the MOST probably, instead of finding them all, or just the first
+        // TODO Change to finding the MOST probable, instead of finding them all, or just the first
         for(j = 0; j < classes; ++j){
             if (probs[i][j] > thresh){
                 if (class < 0) {
@@ -250,8 +253,10 @@ int main(int argc, char **argv)
 
     /* Build up GStreamer pipepline */
     char gstreamer_cmd[512] = { '\0' };
-    //snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "v4l2src device=/dev/video%d ! image/jpeg, width=%d, height=%d, framerate=%d ! tee name=t ! queue ! avimux ! filesink location=%s t. ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", camera_port, cap_width, cap_height, cap_fps, video_filename, stream_dest_host, stream_dest_port);
-    snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "filesrc location=%s ! avidemux ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, stream_dest_host, stream_dest_port);
+    if (opt_replay)
+        snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "filesrc location=%s ! avidemux ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, stream_dest_host, stream_dest_port);
+    else
+        snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "v4l2src device=/dev/video%d ! image/jpeg, width=%d, height=%d, framerate=%d ! tee name=t ! queue ! avimux ! filesink location=%s t. ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", camera_port, cap_width, cap_height, cap_fps, video_filename, stream_dest_host, stream_dest_port);
 
     /* Use GStreamer to acquire video feed */
     printf("Connecting to GStreamer (%s)...\n", gstreamer_cmd);
