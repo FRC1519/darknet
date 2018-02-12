@@ -33,7 +33,7 @@ CFLAGS+= -fopenmp
 endif
 
 ifeq ($(DEBUG), 1) 
-OPTS=-O0 -g
+OPTS=-Og -g3
 endif
 
 CFLAGS+=$(OPTS)
