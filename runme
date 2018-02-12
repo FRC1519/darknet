@@ -1,18 +1,18 @@
 #!/bin/bash
 
+declare -a make_args=(-j$(($(nproc) + 2)))
+declare sudo
+declare ip
 if [[ $(hostname) == robin ]]; then
-    gpu=""
-    opt="-Og -g3"
-    cuda=""
+    make_args+=(GPU=0 CUDNN=0)
     sudo=""
+    ip="192.168.0.252"
 elif [[ $(hostname) == tegra-ubuntu ]]; then
-    gpu="-DGPU -I/usr/local/cuda/include/ -DCUDNN"
-    opt="-Ofast"
-    cuda="-L/usr/local/cuda/lib64 -lcuda -lcudart -lcublas -lcurand -lcudnn -lstdc++"
     sudo="sudo"
+    ip="192.168.0.44"
 else
     echo "Unrecognized host"
     exit 1
 fi
 
-make && $sudo env GST_DEBUG=2 ./robot --camera 0 --width 640 --height 480 --fps 30 --ip 192.168.0.44 --port 9999 cfg/obj.data cfg/tiny-yolo-obj2.cfg backup/tiny-yolo-obj2_4600.weights
+make "${make_args[@]}" && $sudo env GST_DEBUG=2 ./robot --camera 0 --width 640 --height 480 --fps 30 --ip "$ip" --port 9999 cfg/obj.data cfg/tiny-yolo-obj2.cfg backup/tiny-yolo-obj2_4600.weights
