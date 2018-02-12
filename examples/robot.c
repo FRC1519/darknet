@@ -38,10 +38,9 @@ float **probs;
 box *boxes;
 network *net;
 image buff [3];
-image buff_letter[3];
+image buff_letter[3]; /* TODO Explore necessity of letter-boxing */
 int buff_index = 0;
 CvCapture *cap;
-int running = 0;
 
 int detections = 0;
 float **predictions;
@@ -127,9 +126,37 @@ void log_detections(image im, int num, float thresh, box *boxes, float **probs, 
     }
 }
 
+/*
+ * Prepare the network for processing
+ * Code code from demo() in src/demo.c
+ */
+void prepare_network(char *cfgfile, char *weightfile) {
+    /* Load in network from config file and weights */
+    predictions = calloc(avg_frames, sizeof(float*));
+    net = load_network(cfgfile, weightfile, 0);
+    set_batch_network(net, 1);
+
+    layer l = net->layers[net->n-1];
+    detections = l.n*l.w*l.h;
+    int j;
+
+    avg = (float *) calloc(l.outputs, sizeof(float));
+    for(j = 0; j < avg_frames; ++j) predictions[j] = (float *) calloc(l.outputs, sizeof(float));
+
+    boxes = (box *)calloc(l.w*l.h*l.n, sizeof(box));
+    probs = (float **)calloc(l.w*l.h*l.n, sizeof(float *));
+    for(j = 0; j < l.w*l.h*l.n; ++j) probs[j] = (float *)calloc(l.classes+1, sizeof(float));
+
+    buff[0] = get_image_from_stream(cap);
+    buff[1] = copy_image(buff[0]);
+    buff[2] = copy_image(buff[0]);
+    buff_letter[0] = letterbox_image(buff[0], net->w, net->h);
+    buff_letter[1] = letterbox_image(buff[0], net->w, net->h);
+    buff_letter[2] = letterbox_image(buff[0], net->w, net->h);
+}
+
 void *detect_in_thread(void *ptr)
 {
-    running = 1;
     float nms = .4;
 
     layer l = net->layers[net->n-1];
@@ -153,7 +180,6 @@ void *detect_in_thread(void *ptr)
     log_detections(display, detections, thresh, boxes, probs, names, classes);
 
     demo_index = (demo_index + 1) % avg_frames;
-    running = 0;
     return 0;
 }
 
@@ -183,51 +209,37 @@ int main(int argc, char **argv)
     char *cfgfile = argv[optind++];
     char *weightfile = argv[optind++];
 
+#ifdef GPU
     /* Initialize GPU */
     if (gpu_index >= 0){
+        printf("Initializing CPU\n");
         cuda_set_device(gpu_index);
     }
+#endif
 
     /* Read in data config */
     list *options = read_data_cfg(datacfg);
     classes = option_find_int(options, "classes", 20);
-    char *name_list = option_find_str(options, "names", "data/names.list");
+    char *name_list = option_find_str(options, "names", NULL);
+    if (!name_list) {
+        error("Name list not defined in data configuration\n");
+    }
     names = get_labels(name_list);
 
-    /* Load in network from config file and weights */
-    predictions = calloc(avg_frames, sizeof(float*));
-    net = load_network(cfgfile, weightfile, 0);
-    set_batch_network(net, 1);
-
-    /* Build up GStreamer pipepine */
+    /* Build up GStreamer pipepline */
     char gstreamer_cmd[512] = { '\0' };
     //snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "v4l2src device=/dev/video%d ! image/jpeg, width=%d, height=%d, framerate=%d ! tee name=t ! queue ! avimux ! filesink location=%s t. ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", camera_port, cap_width, cap_height, cap_fps, video_filename, stream_dest_host, stream_dest_port);
     snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "filesrc location=%s ! avidemux ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, stream_dest_host, stream_dest_port);
 
     /* Use GStreamer to acquire video feed */
-    printf("Connecting to GStreamer (%s)\n", gstreamer_cmd);
+    printf("Connecting to GStreamer (%s)...\n", gstreamer_cmd);
     cap = cvCreateFileCaptureWithPreference(gstreamer_cmd, CV_CAP_GSTREAMER);
     if (!cap)
         error("Couldn't connect to GStreamer\n");
     printf("Connected to GStreamer\n");
 
-    layer l = net->layers[net->n-1];
-    detections = l.n*l.w*l.h;
-    int j;
-
-    avg = (float *) calloc(l.outputs, sizeof(float));
-    for(j = 0; j < avg_frames; ++j) predictions[j] = (float *) calloc(l.outputs, sizeof(float));
-
-    boxes = (box *)calloc(l.w*l.h*l.n, sizeof(box));
-    probs = (float **)calloc(l.w*l.h*l.n, sizeof(float *));
-    for(j = 0; j < l.w*l.h*l.n; ++j) probs[j] = (float *)calloc(l.classes+1, sizeof(float));
-
-    buff[0] = get_image_from_stream(cap);
-    buff[1] = copy_image(buff[0]);
-    buff[2] = copy_image(buff[0]);
-    buff_letter[0] = letterbox_image(buff[0], net->w, net->h);
-    buff_letter[1] = letterbox_image(buff[0], net->w, net->h);
-    buff_letter[2] = letterbox_image(buff[0], net->w, net->h);
+    printf("Preparing network...\n");
+    prepare_network(cfgfile, weightfile);
 
     int count = 1;
     pthread_t detect_thread;
