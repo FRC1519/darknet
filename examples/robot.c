@@ -40,7 +40,6 @@ network *net;
 image buff [3];
 image buff_letter[3]; /* TODO Explore necessity of letter-boxing */
 int buff_index = 0;
-CvCapture *cap;
 
 int detections = 0;
 float **predictions;
@@ -49,6 +48,9 @@ float *avg;
 int done = 0;
 char **names;
 int classes;
+
+/* Thread synchronization */
+pthread_barrier_t start_barrier, done_barrier;
 
 void parse_options(int argc, char **argv) {
     struct option long_opts[] = {
@@ -130,7 +132,7 @@ void log_detections(image im, int num, float thresh, box *boxes, float **probs, 
  * Prepare the network for processing
  * Code code from demo() in src/demo.c
  */
-void prepare_network(char *cfgfile, char *weightfile) {
+void prepare_network(CvCapture *cap, char *cfgfile, char *weightfile) {
     /* Load in network from config file and weights */
     predictions = calloc(avg_frames, sizeof(float*));
     net = load_network(cfgfile, weightfile, 0);
@@ -157,38 +159,58 @@ void prepare_network(char *cfgfile, char *weightfile) {
 
 void *detect_in_thread(void *ptr)
 {
-    float nms = .4;
+    while (!done) {
+        pthread_barrier_wait(&start_barrier);
 
-    layer l = net->layers[net->n-1];
-    float *X = buff_letter[(buff_index+2)%3].data;
-    float *prediction = network_predict(net, X);
+        float nms = .4;
+        layer l = net->layers[net->n-1];
+        float *X = buff_letter[(buff_index+2)%3].data;
+        float *prediction = network_predict(net, X);
 
-    memcpy(predictions[demo_index], prediction, l.outputs*sizeof(float));
-    mean_arrays(predictions, avg_frames, l.outputs, avg);
-    l.output = avg;
-    if(l.type == DETECTION){
-        get_detection_boxes(l, 1, 1, thresh, probs, boxes, 0);
-    } else if (l.type == REGION){
-        get_region_boxes(l, buff[0].w, buff[0].h, net->w, net->h, thresh, probs, boxes, 0, 0, 0, hier, 1);
-    } else {
-        error("Last layer must produce detections\n");
+        memcpy(predictions[demo_index], prediction, l.outputs*sizeof(float));
+        mean_arrays(predictions, avg_frames, l.outputs, avg);
+        l.output = avg;
+        if(l.type == DETECTION){
+            get_detection_boxes(l, 1, 1, thresh, probs, boxes, 0);
+        } else if (l.type == REGION){
+            get_region_boxes(l, buff[0].w, buff[0].h, net->w, net->h, thresh, probs, boxes, 0, 0, 0, hier, 1);
+        } else {
+            done = 1;
+            error("Last layer must produce detections\n");
+        }
+        if (nms > 0) do_nms_obj(boxes, probs, l.w*l.h*l.n, l.classes, nms);
+
+        printf("Objects:\n\n");
+        image display = buff[(buff_index+2) % 3];
+        log_detections(display, detections, thresh, boxes, probs, names, classes);
+
+        demo_index = (demo_index + 1) % avg_frames;
+
+        pthread_barrier_wait(&done_barrier);
     }
-    if (nms > 0) do_nms_obj(boxes, probs, l.w*l.h*l.n, l.classes, nms);
 
-    printf("Objects:\n\n");
-    image display = buff[(buff_index+2) % 3];
-    log_detections(display, detections, thresh, boxes, probs, names, classes);
-
-    demo_index = (demo_index + 1) % avg_frames;
-    return 0;
+    return NULL;
 }
 
 void *fetch_in_thread(void *ptr)
 {
-    int status = fill_image_from_stream(cap, buff[buff_index]);
-    letterbox_image_into(buff[buff_index], net->w, net->h, buff_letter[buff_index]);
-    if (status == 0) done = 1;
-    return 0;
+    CvCapture *cap = ptr;
+    int status;
+
+    while (!done) {
+        pthread_barrier_wait(&start_barrier);
+
+        status = fill_image_from_stream(cap, buff[buff_index]);
+        if (status == 0) {
+            done = 1;
+        } else {
+            letterbox_image_into(buff[buff_index], net->w, net->h, buff_letter[buff_index]);
+        }
+
+        pthread_barrier_wait(&done_barrier);
+    }
+
+    return NULL;
 }
 
 int main(int argc, char **argv)
@@ -233,28 +255,37 @@ int main(int argc, char **argv)
 
     /* Use GStreamer to acquire video feed */
     printf("Connecting to GStreamer (%s)...\n", gstreamer_cmd);
-    cap = cvCreateFileCaptureWithPreference(gstreamer_cmd, CV_CAP_GSTREAMER);
+    CvCapture *cap = cvCreateFileCaptureWithPreference(gstreamer_cmd, CV_CAP_GSTREAMER);
     if (!cap)
         error("Couldn't connect to GStreamer\n");
     printf("Connected to GStreamer\n");
 
     printf("Preparing network...\n");
-    prepare_network(cfgfile, weightfile);
+    prepare_network(cap, cfgfile, weightfile);
 
     int count = 1;
-    pthread_t detect_thread;
-    pthread_t fetch_thread;
+    pthread_t detect_thread, fetch_thread;
+    if (pthread_create(&fetch_thread, NULL, fetch_in_thread, cap))
+        error("Thread creation failed");
+    if (pthread_create(&detect_thread, NULL, detect_in_thread, NULL))
+        error("Thread creation failed");
+    pthread_barrier_init(&start_barrier, NULL, 3);
+    pthread_barrier_init(&done_barrier, NULL, 3);
+
+    /* TODO Allow threads to run independently, using better synchronization (like a counting semaphore) */
 
     while (!done) {
         printf("\nFRAME #%d\n", count);
         buff_index = (buff_index + 1) % 3;
 
-        /* TODO Notify long-running threads, instead of constantly creating and destroying threads */
-        if(pthread_create(&fetch_thread, 0, fetch_in_thread, 0)) error("Thread creation failed");
-        if(pthread_create(&detect_thread, 0, detect_in_thread, 0)) error("Thread creation failed");
+        pthread_barrier_wait(&start_barrier);
+        pthread_barrier_wait(&done_barrier);
 
-        pthread_join(fetch_thread, 0);
-        pthread_join(detect_thread, 0);
         ++count;
     }
+
+    pthread_barrier_destroy(&start_barrier);
+    pthread_barrier_destroy(&done_barrier);
+    pthread_join(fetch_thread, 0);
+    pthread_join(detect_thread, 0);
 }
