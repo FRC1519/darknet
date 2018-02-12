@@ -94,28 +94,28 @@ void parse_options(int argc, char **argv) {
 
 void log_detections(image im, int num, float thresh, box *boxes, float **probs, char **names, int classes)
 {
-    int i,j;
+    int i, j;
 
-    for(i = 0; i < num; ++i){
-        char labelstr[4096] = {0};
+    for (i = 0; i < num; ++i) {
         int class = -1;
+        float prob = 0.0;
 
-        // TODO Change to finding the MOST probable, instead of finding them all, or just the first
-        for(j = 0; j < classes; ++j){
-            if (probs[i][j] > thresh){
-                if (class < 0) {
-                    strcat(labelstr, names[j]);
-                    class = j;
-                } else {
-                    strcat(labelstr, ", ");
-                    strcat(labelstr, names[j]);
-                }
+        for (j = 0; j < classes; ++j) {
+            if (probs[i][j] > thresh) {
                 printf("%s: %.0f%%\n", names[j], probs[i][j]*100);
+                if (probs[i][j] > prob ) {
+                    class = j;
+                    prob = probs[i][j];
+                } else {
+                    printf(" --> not better than %s @ %.0f%%\n", names[class], prob);
+                }
             }
         }
-        if(class >= 0){
-            //printf("%d %s: %.0f%%\n", i, names[class], prob*100);
+        if (class >= 0){
+            printf("%d %s: %.0f%%\n", i, names[class], prob*100);
 
+            /* TODO Implement real notification algorithm */
+#if 0
             box b = boxes[i];
 
             int left  = (b.x-b.w/2.)*im.w;
@@ -127,6 +127,7 @@ void log_detections(image im, int num, float thresh, box *boxes, float **probs, 
             if(right > im.w-1) right = im.w-1;
             if(top < 0) top = 0;
             if(bot > im.h-1) bot = im.h-1;
+#endif
         }
     }
 }
