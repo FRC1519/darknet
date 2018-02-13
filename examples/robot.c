@@ -271,12 +271,12 @@ int main(int argc, char **argv)
 
     int count = 1;
     pthread_t detect_thread, fetch_thread;
+    pthread_barrier_init(&start_barrier, NULL, 3);
+    pthread_barrier_init(&done_barrier, NULL, 3);
     if (pthread_create(&fetch_thread, NULL, fetch_in_thread, cap))
         error("Thread creation failed");
     if (pthread_create(&detect_thread, NULL, detect_in_thread, NULL))
         error("Thread creation failed");
-    pthread_barrier_init(&start_barrier, NULL, 3);
-    pthread_barrier_init(&done_barrier, NULL, 3);
 
     /* TODO Allow threads to run independently, using better synchronization (like a counting semaphore) */
 
