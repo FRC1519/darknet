@@ -26,7 +26,7 @@ char *stream_dest_host = "192.168.0.2";
 int stream_dest_port = 1519;
 int cap_width = 640;
 int cap_height = 480;
-int cap_fps = 30;
+char *cap_fps = "30/1";
 char *video_filename = "/home/nvidia/capture.avi";
 
 float thresh = .24;
@@ -82,7 +82,7 @@ void parse_options(int argc, char **argv) {
             case 'H': h = atoi(optarg); break;
             case 'I': stream_dest_host = optarg; break;
             case 'p': stream_dest_port = atoi(optarg); break;
-            case 'f': cap_fps = atoi(optarg); break;
+            case 'f': cap_fps = optarg; break;
             case 'V': video_filename = optarg; break;
             case 'c': camera_port = atoi(optarg); break;
             case 'R': opt_replay = 1; break;
@@ -257,7 +257,7 @@ int main(int argc, char **argv)
     if (opt_replay)
         snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "filesrc location=%s ! avidemux ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, stream_dest_host, stream_dest_port);
     else
-        snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "v4l2src device=/dev/video%d ! image/jpeg, width=%d, height=%d, framerate=%d ! tee name=t ! queue ! avimux ! filesink location=%s t. ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", camera_port, cap_width, cap_height, cap_fps, video_filename, stream_dest_host, stream_dest_port);
+        snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "v4l2src device=/dev/video%d ! image/jpeg, width=%d, height=%d, framerate=%s ! tee name=t ! queue ! avimux ! filesink location=%s t. ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", camera_port, cap_width, cap_height, cap_fps, video_filename, stream_dest_host, stream_dest_port);
 
     /* Use GStreamer to acquire video feed */
     printf("Connecting to GStreamer (%s)...\n", gstreamer_cmd);
