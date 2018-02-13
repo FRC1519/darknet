@@ -29,30 +29,32 @@ int cap_height = 480;
 char *cap_fps = "30/1";
 char *video_filename = "/home/nvidia/capture.avi";
 
+/* Network-related configuration, overridable on the command line */
 float thresh = .24;
 float hier = .5;
 int avg_frames = 3;
-int w = 0; /* TODO Compare to cap_width */
-int h = 0; /* TODO Compare to cap_height */
 
+/* Synchronized access to image feed */
+int next_frame = 0;
+image next_img = { 0 };
+int image_pending = 0;
+pthread_mutex_t image_lock  = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t image_cv = PTHREAD_COND_INITIALIZER;
+
+/* Global indicator that it's time to be done */
+int done = 0;
+
+/* "Magic" darknet stuff */
+network *net;
 float **probs;
 box *boxes;
-network *net;
-image buff [3];
-image buff_letter[3]; /* TODO Explore necessity of letter-boxing */
-int buff_index = 0;
-
 int detections = 0;
 float **predictions;
-int demo_index = 0;
 float *avg;
-int done = 0;
 char **names;
 int classes;
 
-/* Thread synchronization */
-pthread_barrier_t start_barrier, done_barrier;
-
+/* Command line options */
 void parse_options(int argc, char **argv) {
     struct option long_opts[] = {
         {"hier",   required_argument, NULL, 'h'},
@@ -78,8 +80,8 @@ void parse_options(int argc, char **argv) {
             case 'i': gpu_index = atoi(optarg); break;
             case 't': thresh = atof(optarg); break;
             case 'a': avg_frames = atoi(optarg); break;
-            case 'W': w = atoi(optarg); break;
-            case 'H': h = atoi(optarg); break;
+            case 'W': cap_width = atoi(optarg); break;
+            case 'H': cap_height = atoi(optarg); break;
             case 'I': stream_dest_host = optarg; break;
             case 'p': stream_dest_port = atoi(optarg); break;
             case 'f': cap_fps = optarg; break;
@@ -92,49 +94,50 @@ void parse_options(int argc, char **argv) {
     }
 }
 
-void log_detections(image im, int num, float thresh, box *boxes, float **probs, char **names, int classes)
-{
+/* Log the detected objects */
+void log_detections(int w, int h, int num, float thresh, box *boxes, float **probs, char **names, int classes) {
     int i, j;
 
+    printf("Objects:\n");
     for (i = 0; i < num; ++i) {
         int class = -1;
         float prob = 0.0;
 
         for (j = 0; j < classes; ++j) {
             if (probs[i][j] > thresh) {
-                printf("%s: %.0f%%\n", names[j], probs[i][j]*100);
+                printf("  %s: %.0f%%\n", names[j], probs[i][j]*100);
                 if (probs[i][j] > prob ) {
                     class = j;
                     prob = probs[i][j];
                 } else {
-                    printf(" --> not better than %s @ %.0f%%\n", names[class], prob);
+                    printf("    --> not better than %s @ %.0f%%\n", names[class], prob);
                 }
             }
         }
         if (class >= 0){
-            printf("%d %s: %.0f%%\n", i, names[class], prob*100);
+            printf("  %d %s: %.0f%%\n", i, names[class], prob*100);
 
-            /* TODO Implement real notification algorithm */
+            /* TODO Implement real notification method */
 #if 0
             box b = boxes[i];
 
-            int left  = (b.x-b.w/2.)*im.w;
-            int right = (b.x+b.w/2.)*im.w;
-            int top   = (b.y-b.h/2.)*im.h;
-            int bot   = (b.y+b.h/2.)*im.h;
+            int left  = (b.x-b.w/2.)*w;
+            int right = (b.x+b.w/2.)*w;
+            int top   = (b.y-b.h/2.)*h;
+            int bot   = (b.y+b.h/2.)*h;
 
             if(left < 0) left = 0;
-            if(right > im.w-1) right = im.w-1;
+            if(right > w-1) right = w-1;
             if(top < 0) top = 0;
-            if(bot > im.h-1) bot = im.h-1;
+            if(bot > h-1) bot = h-1;
 #endif
         }
     }
 }
 
 /*
- * Prepare the network for processing
- * Code code from demo() in src/demo.c
+ * Prepare the darknet network for processing
+ * Code derived from demo() in src/demo.c
  */
 void prepare_network(CvCapture *cap, char *cfgfile, char *weightfile) {
     /* Load in network from config file and weights */
@@ -152,73 +155,140 @@ void prepare_network(CvCapture *cap, char *cfgfile, char *weightfile) {
     boxes = (box *)calloc(l.w*l.h*l.n, sizeof(box));
     probs = (float **)calloc(l.w*l.h*l.n, sizeof(float *));
     for(j = 0; j < l.w*l.h*l.n; ++j) probs[j] = (float *)calloc(l.classes+1, sizeof(float));
-
-    buff[0] = get_image_from_stream(cap);
-    buff[1] = copy_image(buff[0]);
-    buff[2] = copy_image(buff[0]);
-    buff_letter[0] = letterbox_image(buff[0], net->w, net->h);
-    buff_letter[1] = letterbox_image(buff[0], net->w, net->h);
-    buff_letter[2] = letterbox_image(buff[0], net->w, net->h);
 }
 
-void *detect_in_thread(void *ptr)
-{
-    while (!done) {
-        pthread_barrier_wait(&start_barrier);
+/* Detected objects in frames as they are found */
+void *detect_thread_impl(void *ptr) {
+    int last_frame = 0;
+    int frame_delta;
+    int rv;
+    image img = { 0 };
+    int index = 0;
 
+    /* Run until the program is ready to be over */
+    while (!done) {
+        /* Ensure exclusive access */
+        rv = pthread_mutex_lock(&image_lock);
+        assert(rv == 0);
+
+        /* Wait for a new frame */
+        while (!image_pending) {
+            /* Wait for notification that something has been added */
+            rv = pthread_cond_wait(&image_cv, &image_lock);
+            assert(rv == 0);
+        }
+
+        /* Check the status of new frames */
+        assert(next_frame >= last_frame);
+        frame_delta = next_frame - last_frame;
+        if (frame_delta == 0) {
+            pthread_mutex_unlock(&image_lock);
+            printf("Detector woke up without a new frame (%d), expected %d frame(s)\n", last_frame, image_pending);
+            continue;
+        }
+        if (frame_delta != image_pending)
+            printf("NOTE: Expected to find %d new frame(s), but found %d instead\n", image_pending, frame_delta);
+
+        /* Get the data from the image */
+        if (img.data == NULL)
+            img = copy_image(next_img);
+        else
+            copy_image_into(next_img, img);
+        last_frame = next_frame;
+        image_pending = 0;
+
+        /* Remove exclusive access */
+        pthread_mutex_unlock(&image_lock);
+
+        /*
+         * Checked for missed frame -- it happens if we cannot detect as quickly
+         * as new frames arrive, but we'd like to know about it
+         */
+        if (frame_delta > 1)
+            printf("NOTE: Detector missed %d frame(s)\n", frame_delta - 1);
+
+        /* "Magic" Darknet stuff */
         float nms = .4;
         layer l = net->layers[net->n-1];
-        float *X = buff_letter[(buff_index+2)%3].data;
-        float *prediction = network_predict(net, X);
+        float *prediction = network_predict(net, img.data);
 
-        memcpy(predictions[demo_index], prediction, l.outputs*sizeof(float));
+        memcpy(predictions[index], prediction, l.outputs*sizeof(float));
         mean_arrays(predictions, avg_frames, l.outputs, avg);
         l.output = avg;
         if(l.type == DETECTION){
             get_detection_boxes(l, 1, 1, thresh, probs, boxes, 0);
         } else if (l.type == REGION){
-            get_region_boxes(l, buff[0].w, buff[0].h, net->w, net->h, thresh, probs, boxes, 0, 0, 0, hier, 1);
+            get_region_boxes(l, cap_width, cap_height, net->w, net->h, thresh, probs, boxes, 0, 0, 0, hier, 1);
         } else {
             done = 1;
             error("Last layer must produce detections\n");
         }
         if (nms > 0) do_nms_obj(boxes, probs, l.w*l.h*l.n, l.classes, nms);
+        index = (index + 1) % avg_frames;
 
-        printf("Objects:\n\n");
-        image display = buff[(buff_index+2) % 3];
-        log_detections(display, detections, thresh, boxes, probs, names, classes);
-
-        demo_index = (demo_index + 1) % avg_frames;
-
-        pthread_barrier_wait(&done_barrier);
+        log_detections(cap_width, cap_height, detections, thresh, boxes, probs, names, classes);
     }
 
     return NULL;
 }
 
-void *fetch_in_thread(void *ptr)
-{
-    CvCapture *cap = ptr;
-    int status;
+/* Fetch all frames from OpenCV */
+void fetch_frames(CvCapture *cap) {
+    int frame = 0;
+    int status, rv;
+    image new_image = { 0 };
+    image boxed_image = { 0 };
 
     while (!done) {
-        pthread_barrier_wait(&start_barrier);
+        printf("Acquiring frame #%d\n", ++frame);
 
-        status = fill_image_from_stream(cap, buff[buff_index]);
-        if (status == 0) {
-            done = 1;
+        if (new_image.data == NULL) {
+            new_image = get_image_from_stream(cap);
         } else {
-            letterbox_image_into(buff[buff_index], net->w, net->h, buff_letter[buff_index]);
+            status = fill_image_from_stream(cap, new_image);
+            if (status == 0) {
+                done = 1;
+                rv = pthread_cond_signal(&image_cv);
+                assert(rv == 0);
+                return;
+            }
         }
+        assert(new_image.w == cap_width);
+        assert(new_image.h == cap_height);
 
-        pthread_barrier_wait(&done_barrier);
+        if (new_image.w == net->w && new_image.h == net->h)
+            boxed_image = new_image;
+        else if (boxed_image.data == NULL)
+            boxed_image = letterbox_image(new_image, net->w, net->h);
+        else
+            letterbox_image_into(new_image, net->w, net->h, boxed_image);
+
+        printf("Saving frame #%d for processing\n", frame);
+
+        /* Ensure exclusive access */
+        rv = pthread_mutex_lock(&image_lock);
+        assert(rv == 0);
+
+        /* Update image */
+        if (next_img.data == NULL)
+            next_img = copy_image(boxed_image);
+        else
+            copy_image_into(boxed_image, next_img);
+        next_frame = frame;
+        image_pending = 1;
+
+        /* Release exclusivity ASAP */
+        rv = pthread_mutex_unlock(&image_lock);
+        assert(rv == 0);
+
+        /* Notify detector that there might be a new frame */
+        rv = pthread_cond_signal(&image_cv);
+        assert(rv == 0);
     }
-
-    return NULL;
 }
 
-int main(int argc, char **argv)
-{
+/* Main program */
+int main(int argc, char **argv) {
 #ifndef GPU
     gpu_index = -1;
 #endif
@@ -266,32 +336,24 @@ int main(int argc, char **argv)
         error("Couldn't connect to GStreamer\n");
     printf("Connected to GStreamer\n");
 
+    /* Kick off the Darknet magic */
     printf("Preparing network...\n");
     prepare_network(cap, cfgfile, weightfile);
 
-    int count = 1;
-    pthread_t detect_thread, fetch_thread;
-    pthread_barrier_init(&start_barrier, NULL, 3);
-    pthread_barrier_init(&done_barrier, NULL, 3);
-    if (pthread_create(&fetch_thread, NULL, fetch_in_thread, cap))
-        error("Thread creation failed");
-    if (pthread_create(&detect_thread, NULL, detect_in_thread, NULL))
+    /* Start detector asynchronously */
+    pthread_t detect_thread;
+    printf("Starting detector thread...\n");
+    if (pthread_create(&detect_thread, NULL, detect_thread_impl, NULL))
         error("Thread creation failed");
 
-    /* TODO Allow threads to run independently, using better synchronization (like a counting semaphore) */
+    /* Process all of the frames */
+    printf("Fetching frames from source...\n");
+    fetch_frames(cap);
 
-    while (!done) {
-        printf("\nFRAME #%d\n", count);
-        buff_index = (buff_index + 1) % 3;
-
-        pthread_barrier_wait(&start_barrier);
-        pthread_barrier_wait(&done_barrier);
-
-        ++count;
-    }
-
-    pthread_barrier_destroy(&start_barrier);
-    pthread_barrier_destroy(&done_barrier);
-    pthread_join(fetch_thread, 0);
+    /* Clean up */
+    printf("Waiting for termination...\n");
     pthread_join(detect_thread, 0);
+    cvReleaseCapture(&cap);
+
+    return 0;
 }
