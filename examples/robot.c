@@ -167,6 +167,8 @@ void *detect_thread_impl(void *ptr) {
 
     /* Run until the program is ready to be over */
     while (!done) {
+        printf("Waiting on a frame to process...\n");
+
         /* Ensure exclusive access */
         rv = pthread_mutex_lock(&image_lock);
         assert(rv == 0);
@@ -275,7 +277,7 @@ void fetch_frames(CvCapture *cap) {
         else
             copy_image_into(boxed_image, next_img);
         next_frame = frame;
-        image_pending = 1;
+        image_pending++;
 
         /* Release exclusivity ASAP */
         rv = pthread_mutex_unlock(&image_lock);
