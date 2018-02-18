@@ -2,22 +2,11 @@
 #include <stdio.h>
 #include <getopt.h>
 
+#include "robot.h"
 #include "darknet.h"
 
-#include "network.h"
-#include "detection_layer.h"
-#include "region_layer.h"
-#include "cost_layer.h"
-#include "utils.h"
-#include "parser.h"
-#include "box.h"
-#include "image.h"
-#include "demo.h"
-
-/*
- * This code is based on the code that runs "darknet detector demo".
- * It is a trimmed down and edited version of darknet.c, detector.c, and demo.c
- */
+#include "box.h"        // TODO Remove need
+#include "image.h"      // TODO Remove need
 
 /* Default configuration, overridable on the command line */
 int opt_replay = 0;
@@ -28,11 +17,11 @@ int cap_width = 640;
 int cap_height = 480;
 char *cap_fps = "30/1";
 char *video_filename = "/home/nvidia/capture.avi";
-
-/* Network-related configuration, overridable on the command line */
-float thresh = .24;
-float hier = .5;
-int avg_frames = 3;
+float thresh = .24; /* Threshold to be exceeded to be considered worth reporting */
+int bitrate = 0;
+int stream_width = 320;
+int stream_height = 240;
+char *stream_fps = "30/1";
 
 /* Synchronized access to image feed */
 int next_frame = 0;
@@ -44,23 +33,11 @@ pthread_cond_t image_cv = PTHREAD_COND_INITIALIZER;
 /* Global indicator that it's time to be done */
 int done = 0;
 
-/* "Magic" darknet stuff */
-network *net;
-float **probs;
-box *boxes;
-int detections = 0;
-float **predictions;
-float *avg;
-char **names;
-int classes;
-
 /* Command line options */
 void parse_options(int argc, char **argv) {
     struct option long_opts[] = {
-        {"hier",   required_argument, NULL, 'h'},
         {"gpu",    required_argument, NULL, 'i'},
         {"thresh", required_argument, NULL, 't'},
-        {"avg",    required_argument, NULL, 'a'},
         {"width",  required_argument, NULL, 'W'},
         {"height", required_argument, NULL, 'H'},
         {"ip",     required_argument, NULL, 'I'},
@@ -76,10 +53,8 @@ void parse_options(int argc, char **argv) {
     int opt;
     while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:I:p:f:V:c:R", long_opts, &long_index)) != -1) {
         switch (opt) {
-            case 'h': hier = atof(optarg); break;
             case 'i': gpu_index = atoi(optarg); break;
             case 't': thresh = atof(optarg); break;
-            case 'a': avg_frames = atoi(optarg); break;
             case 'W': cap_width = atoi(optarg); break;
             case 'H': cap_height = atoi(optarg); break;
             case 'I': stream_dest_host = optarg; break;
@@ -94,76 +69,12 @@ void parse_options(int argc, char **argv) {
     }
 }
 
-/* Log the detected objects */
-void log_detections(int w, int h, int num, float thresh, box *boxes, float **probs, char **names, int classes) {
-    int i, j;
-
-    printf("Objects:\n");
-    for (i = 0; i < num; ++i) {
-        int class = -1;
-        float prob = 0.0;
-
-        for (j = 0; j < classes; ++j) {
-            if (probs[i][j] > thresh) {
-                printf("  %s: %.0f%%\n", names[j], probs[i][j]*100);
-                if (probs[i][j] > prob ) {
-                    class = j;
-                    prob = probs[i][j];
-                } else {
-                    printf("    --> not better than %s @ %.0f%%\n", names[class], prob);
-                }
-            }
-        }
-        if (class >= 0){
-            printf("  %d %s: %.0f%%\n", i, names[class], prob*100);
-
-            /* TODO Implement real notification method */
-#if 0
-            box b = boxes[i];
-
-            int left  = (b.x-b.w/2.)*w;
-            int right = (b.x+b.w/2.)*w;
-            int top   = (b.y-b.h/2.)*h;
-            int bot   = (b.y+b.h/2.)*h;
-
-            if(left < 0) left = 0;
-            if(right > w-1) right = w-1;
-            if(top < 0) top = 0;
-            if(bot > h-1) bot = h-1;
-#endif
-        }
-    }
-}
-
-/*
- * Prepare the darknet network for processing
- * Code derived from demo() in src/demo.c
- */
-void prepare_network(CvCapture *cap, char *cfgfile, char *weightfile) {
-    /* Load in network from config file and weights */
-    predictions = calloc(avg_frames, sizeof(float*));
-    net = load_network(cfgfile, weightfile, 0);
-    set_batch_network(net, 1);
-
-    layer l = net->layers[net->n-1];
-    detections = l.n*l.w*l.h;
-    int j;
-
-    avg = (float *) calloc(l.outputs, sizeof(float));
-    for(j = 0; j < avg_frames; ++j) predictions[j] = (float *) calloc(l.outputs, sizeof(float));
-
-    boxes = (box *)calloc(l.w*l.h*l.n, sizeof(box));
-    probs = (float **)calloc(l.w*l.h*l.n, sizeof(float *));
-    for(j = 0; j < l.w*l.h*l.n; ++j) probs[j] = (float *)calloc(l.classes+1, sizeof(float));
-}
-
 /* Detected objects in frames as they are found */
 void *detect_thread_impl(void *ptr) {
     int last_frame = 0;
     int frame_delta;
     int rv;
     image img = { 0 };
-    int index = 0;
 
     /* Run until the program is ready to be over */
     while (!done) {
@@ -209,26 +120,10 @@ void *detect_thread_impl(void *ptr) {
         if (frame_delta > 1)
             printf("NOTE: Detector missed %d frame(s)\n", frame_delta - 1);
 
-        /* "Magic" Darknet stuff */
-        float nms = .4;
-        layer l = net->layers[net->n-1];
-        float *prediction = network_predict(net, img.data);
-
-        memcpy(predictions[index], prediction, l.outputs*sizeof(float));
-        mean_arrays(predictions, avg_frames, l.outputs, avg);
-        l.output = avg;
-        if(l.type == DETECTION){
-            get_detection_boxes(l, 1, 1, thresh, probs, boxes, 0);
-        } else if (l.type == REGION){
-            get_region_boxes(l, cap_width, cap_height, net->w, net->h, thresh, probs, boxes, 0, 0, 0, hier, 1);
-        } else {
+        if (process_image(img, thresh) != 0) {
+            fprintf(stderr, "Error from recognition network when processing image\n");
             done = 1;
-            error("Last layer must produce detections\n");
         }
-        if (nms > 0) do_nms_obj(boxes, probs, l.w*l.h*l.n, l.classes, nms);
-        index = (index + 1) % avg_frames;
-
-        log_detections(cap_width, cap_height, detections, thresh, boxes, probs, names, classes);
     }
 
     return NULL;
@@ -239,7 +134,6 @@ void fetch_frames(CvCapture *cap) {
     int frame = 0;
     int status, rv;
     image new_image = { 0 };
-    image boxed_image = { 0 };
 
     while (!done) {
         printf("Acquiring frame #%d\n", ++frame);
@@ -258,13 +152,6 @@ void fetch_frames(CvCapture *cap) {
         assert(new_image.w == cap_width);
         assert(new_image.h == cap_height);
 
-        if (new_image.w == net->w && new_image.h == net->h)
-            boxed_image = new_image;
-        else if (boxed_image.data == NULL)
-            boxed_image = letterbox_image(new_image, net->w, net->h);
-        else
-            letterbox_image_into(new_image, net->w, net->h, boxed_image);
-
         printf("Saving frame #%d for processing\n", frame);
 
         /* Ensure exclusive access */
@@ -273,9 +160,9 @@ void fetch_frames(CvCapture *cap) {
 
         /* Update image */
         if (next_img.data == NULL)
-            next_img = copy_image(boxed_image);
+            next_img = copy_image(new_image);
         else
-            copy_image_into(boxed_image, next_img);
+            copy_image_into(new_image, next_img);
         next_frame = frame;
         image_pending++;
 
@@ -298,14 +185,11 @@ int main(int argc, char **argv) {
     /* Process command-line options */
     parse_options(argc, argv);
 
-    /* Process data file parameters */
-    if (argc != optind + 3) {
-        fprintf(stderr, "usage: %s [datacfg] [cfg] [weights]\n", argv[0]);
-        exit(1);
+    /* Pass along remaining arguments to recognition network */
+    if (net_parse_arguments(argc - optind, &argv[optind]) != 0) {
+        error("Object recognition network failed to process arguments");
     }
-    char *datacfg = argv[optind++];
-    char *cfgfile = argv[optind++];
-    char *weightfile = argv[optind++];
+
 
 #ifdef GPU
     /* Initialize GPU */
@@ -314,15 +198,6 @@ int main(int argc, char **argv) {
         cuda_set_device(gpu_index);
     }
 #endif
-
-    /* Read in data config */
-    list *options = read_data_cfg(datacfg);
-    classes = option_find_int(options, "classes", 20);
-    char *name_list = option_find_str(options, "names", NULL);
-    if (!name_list) {
-        error("Name list not defined in data configuration\n");
-    }
-    names = get_labels(name_list);
 
     /* Build up GStreamer pipepline */
     char gstreamer_cmd[512] = { '\0' };
@@ -340,7 +215,7 @@ int main(int argc, char **argv) {
 
     /* Kick off the Darknet magic */
     printf("Preparing network...\n");
-    prepare_network(cap, cfgfile, weightfile);
+    net_prepare();
 
     /* Start detector asynchronously */
     pthread_t detect_thread;
