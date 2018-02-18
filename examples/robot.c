@@ -17,11 +17,12 @@ int cap_width = 640;
 int cap_height = 480;
 char *cap_fps = "30/1";
 char *video_filename = "/home/nvidia/capture.avi";
-float thresh = .24; /* Threshold to be exceeded to be considered worth reporting */
-int bitrate = 0;
+int bitrate = 1000000;
+int iframe_ms = 2500;
 int stream_width = 320;
 int stream_height = 240;
 char *stream_fps = "30/1";
+float thresh = .24; /* Threshold to be exceeded to be considered worth reporting */
 
 /* Synchronized access to image feed */
 int next_frame = 0;
@@ -36,22 +37,26 @@ int done = 0;
 /* Command line options */
 void parse_options(int argc, char **argv) {
     struct option long_opts[] = {
-        {"gpu",    required_argument, NULL, 'i'},
-        {"thresh", required_argument, NULL, 't'},
-        {"width",  required_argument, NULL, 'W'},
-        {"height", required_argument, NULL, 'H'},
-        {"ip",     required_argument, NULL, 'I'},
-        {"port",   required_argument, NULL, 'p'},
-        {"fps",    required_argument, NULL, 'f'},
-        {"video",  required_argument, NULL, 'V'},
-        {"camera", required_argument, NULL, 'c'},
-        {"replay", no_argument,       NULL, 'R'},
+        {"gpu",           required_argument, NULL, 'i'},
+        {"thresh",        required_argument, NULL, 't'},
+        {"width",         required_argument, NULL, 'W'},
+        {"height",        required_argument, NULL, 'H'},
+        {"ip",            required_argument, NULL, 'I'},
+        {"port",          required_argument, NULL, 'p'},
+        {"fps",           required_argument, NULL, 'f'},
+        {"video",         required_argument, NULL, 'V'},
+        {"camera",        required_argument, NULL, 'c'},
+        {"bitrate",       required_argument, NULL, 'b'},
+        {"stream-width",  required_argument, NULL, 's'},
+        {"stream-height", required_argument, NULL, 'S'},
+        {"stream-fps",    required_argument, NULL, 'F'},
+        {"replay",        no_argument,       NULL, 'R'},
         {NULL, 0, NULL, 0}
     };
 
     int long_index = 0;
     int opt;
-    while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:I:p:f:V:c:R", long_opts, &long_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:I:p:f:V:c:b:s:S:F:R", long_opts, &long_index)) != -1) {
         switch (opt) {
             case 'i': gpu_index = atoi(optarg); break;
             case 't': thresh = atof(optarg); break;
@@ -62,6 +67,10 @@ void parse_options(int argc, char **argv) {
             case 'f': cap_fps = optarg; break;
             case 'V': video_filename = optarg; break;
             case 'c': camera_port = atoi(optarg); break;
+            case 'b': bitrate = atoi(optarg); break;
+            case 's': stream_width = atoi(optarg); break;
+            case 'S': stream_height = atoi(optarg); break;
+            case 'F': stream_fps = optarg; break;
             case 'R': opt_replay = 1; break;
             default:
                 error("usage error");
@@ -190,7 +199,6 @@ int main(int argc, char **argv) {
         error("Object recognition network failed to process arguments");
     }
 
-
 #ifdef GPU
     /* Initialize GPU */
     if (gpu_index >= 0){
@@ -204,7 +212,7 @@ int main(int argc, char **argv) {
     if (opt_replay)
         snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "filesrc location=%s ! avidemux ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, stream_dest_host, stream_dest_port);
     else
-        snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "v4l2src device=/dev/video%d ! image/jpeg, width=%d, height=%d, framerate=%s ! tee name=t ! queue ! avimux ! filesink location=%s t. ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", camera_port, cap_width, cap_height, cap_fps, video_filename, stream_dest_host, stream_dest_port);
+        snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "uvch264src dev=/dev/video%d entropy=cabac post-previews=false rate-control=vbr initial-bitrate=%d peak-bitrate=%d average-bitrate=%d iframe-period=%d auto-start=true name=src src.vfsrc ! queue ! tee name=t ! queue ! image/jpeg, width=%d, height=%d, framerate=%s ! avimux ! filesink location=%s t. ! jpegdec ! videoconvert ! appsink src.vidsrc ! queue ! video/x-h264, width=%d, height=%d, framerate=%s, profile=high, stream-format=byte-stream ! h264parse ! video/x-h264, stream-format=avc ! rtph264pay ! udpsink host=%s port=%d", camera_port, bitrate, bitrate, bitrate, iframe_ms, cap_width, cap_height, cap_fps, video_filename, stream_width, stream_height, stream_fps, stream_dest_host, stream_dest_port);
 
     /* Use GStreamer to acquire video feed */
     printf("Connecting to GStreamer (%s)...\n", gstreamer_cmd);
