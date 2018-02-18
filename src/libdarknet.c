@@ -114,7 +114,7 @@ void log_detections(int w, int h, int num, float thresh, box *boxes, float **pro
     }
 }
 
-int process_image(image img, float thresh) {
+int net_process_image(image img, float thresh) {
     /* Letterbox image to match the size of the network */
     static image boxed_image = { 0 };
     static int index = 0;

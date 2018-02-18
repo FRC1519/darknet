@@ -129,7 +129,7 @@ void *detect_thread_impl(void *ptr) {
         if (frame_delta > 1)
             printf("NOTE: Detector missed %d frame(s)\n", frame_delta - 1);
 
-        if (process_image(img, thresh) != 0) {
+        if (net_process_image(img, thresh) != 0) {
             fprintf(stderr, "Error from recognition network when processing image\n");
             done = 1;
         }
@@ -195,14 +195,13 @@ int main(int argc, char **argv) {
     parse_options(argc, argv);
 
     /* Pass along remaining arguments to recognition network */
-    if (net_parse_arguments(argc - optind, &argv[optind]) != 0) {
+    if (net_parse_arguments(argc - optind, &argv[optind]) != 0)
         error("Object recognition network failed to process arguments");
-    }
 
 #ifdef GPU
     /* Initialize GPU */
     if (gpu_index >= 0){
-        printf("Initializing CPU\n");
+        printf("Initializing CPU...\n");
         cuda_set_device(gpu_index);
     }
 #endif
