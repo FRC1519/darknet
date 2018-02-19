@@ -3,12 +3,12 @@
 #include <getopt.h>
 #include <pthread.h>
 #include <opencv2/core/core_c.h>
+#include <opencv2/videoio/videoio_c.h>
 
 #include "robot.h"
 
-#include "box.h"        // TODO Remove need
-
 /* Default configuration, overridable on the command line */
+int opt_gpu = -1;
 int opt_replay = 0;
 int camera_port = 0;
 char *stream_dest_host = "10.15.19.5";
@@ -57,7 +57,7 @@ void parse_options(int argc, char **argv) {
     int opt;
     while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:I:p:f:V:c:b:s:S:F:R", long_opts, &long_index)) != -1) {
         switch (opt) {
-            case 'i': gpu_index = atoi(optarg); break;
+            case 'i': opt_gpu = atoi(optarg); break;
             case 't': thresh = atof(optarg); break;
             case 'W': cap_width = atoi(optarg); break;
             case 'H': cap_height = atoi(optarg); break;
@@ -72,13 +72,28 @@ void parse_options(int argc, char **argv) {
             case 'F': stream_fps = optarg; break;
             case 'R': opt_replay = 1; break;
             default:
-                error("usage error");
+                fprintf(stderr, "Usage error\n");
+                exit(1);
         }
+    }
+}
+
+/* Provide notification about detected objects */
+void notify_objects(object_location *objects) {
+    /* TODO Notify robot and OI via the network */
+
+    for (int i = 0; i < MAX_OBJECTS_PER_FRAME; i++) {
+        /* Quit early if no more objects */
+        if (objects[i].type == OBJ_NONE)
+            break;
+
+        printf("OBJECT FOUND: Type %d @ %.02f x %.02f [ %.02f x %.02f ], %.02f%%\n", objects[i].type, objects[i].x, objects[i].y, objects[i].width, objects[i].height, objects[i].probability);
     }
 }
 
 /* Detected objects in frames as they are found */
 void *detect_thread_impl(void *ptr) {
+    object_location objects[MAX_OBJECTS_PER_FRAME] = { 0 };
     int last_frame = 0;
     int frame_delta;
     int rv;
@@ -123,10 +138,13 @@ void *detect_thread_impl(void *ptr) {
         if (frame_delta > 1)
             printf("NOTE: Detector missed %d frame(s)\n", frame_delta - 1);
 
-        if (net_process_image(net_data, thresh) != 0) {
+        if (net_process_image(net_data, thresh, objects) != 0) {
             fprintf(stderr, "Error from recognition network when processing image\n");
             done = 1;
         }
+
+        /* Provide notification about objects */
+        notify_objects(objects);
     }
 
     return NULL;
@@ -135,8 +153,7 @@ void *detect_thread_impl(void *ptr) {
 /* Fetch all frames from OpenCV */
 void fetch_frames(CvCapture *cap) {
     int frame = 0;
-    int status, rv;
-    image new_image = { 0 };
+    int rv;
     IplImage *image;
     void *net_data;
     void *old_data;
@@ -175,7 +192,7 @@ void fetch_frames(CvCapture *cap) {
         assert(rv == 0);
 
         /* Set the image data as the next to be used */
-        old_data = next_image_data == NULL ? NULL : next_image_data;
+        old_data = next_image_data;
         next_image_data = net_data;
         next_frame = frame;
 
@@ -187,8 +204,8 @@ void fetch_frames(CvCapture *cap) {
          * Allow network to free data that never got processed (because we
          * grabbed another frame first)
          */
-        if (free_data != NULL)
-            net_free_image_data(image);
+        if (old_data != NULL)
+            net_free_image_data(old_data);
 
         /* Notify detector that there might be a new frame */
         rv = pthread_cond_signal(&image_cv);
@@ -198,24 +215,14 @@ void fetch_frames(CvCapture *cap) {
 
 /* Main program */
 int main(int argc, char **argv) {
-#ifndef GPU
-    gpu_index = -1;
-#endif
-
     /* Process command-line options */
     parse_options(argc, argv);
 
     /* Pass along remaining arguments to recognition network */
-    if (net_parse_arguments(argc - optind, &argv[optind]) != 0)
-        error("Object recognition network failed to process arguments");
-
-#ifdef GPU
-    /* Initialize GPU */
-    if (gpu_index >= 0){
-        printf("Initializing CPU...\n");
-        cuda_set_device(gpu_index);
+    if (net_parse_arguments(argc - optind, &argv[optind]) != 0) {
+        fprintf(stderr, "Object recognition network failed to process arguments\n");
+        exit(1);
     }
-#endif
 
     /* Build up GStreamer pipepline */
     char gstreamer_cmd[1024] = { '\0' };
@@ -227,19 +234,23 @@ int main(int argc, char **argv) {
     /* Use GStreamer to acquire video feed */
     printf("Connecting to GStreamer (%s)...\n", gstreamer_cmd);
     CvCapture *cap = cvCreateFileCaptureWithPreference(gstreamer_cmd, CV_CAP_GSTREAMER);
-    if (!cap)
-        error("Couldn't connect to GStreamer\n");
+    if (!cap) {
+        fprintf(stderr, "Couldn't connect to GStreamer\n");
+        exit(1);
+    }
     printf("Connected to GStreamer\n");
 
     /* Kick off the Darknet magic */
     printf("Preparing network...\n");
-    net_prepare();
+    net_prepare(opt_gpu);
 
     /* Start detector asynchronously */
     pthread_t detect_thread;
     printf("Starting detector thread...\n");
-    if (pthread_create(&detect_thread, NULL, detect_thread_impl, NULL))
-        error("Thread creation failed");
+    if (pthread_create(&detect_thread, NULL, detect_thread_impl, NULL)) {
+        fprintf(stderr, "Thread creation failed\n");
+        exit(1);
+    }
 
     /* Process all of the frames */
     printf("Fetching frames from source...\n");

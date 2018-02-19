@@ -66,11 +66,20 @@ int net_parse_arguments(int argc, char **argv) {
  * Prepare the darknet network for processing
  * Code derived from demo() in src/demo.c
  */
-void net_prepare(void) {
+void net_prepare(int gpu_idx) {
     /* Load in network from config file and weights */
     predictions = calloc(avg_frames, sizeof(float*));
     net = load_network(cfgfile, weightfile, 0);
     set_batch_network(net, 1);
+
+    gpu_index = gpu_idx;
+#ifdef GPU
+    /* Initialize GPU */
+    if (gpu_index >= 0){
+        printf("Initializing CPU...\n");
+        cuda_set_device(gpu_index);
+    }
+#endif
 
     /* Darknet magic, derived from demo() in src/demo.c */
     layer l = net->layers[net->n-1];
@@ -89,48 +98,82 @@ void net_prepare(void) {
     /* Pre-allocated image buffers */
     image *images = calloc(MAX_IMAGES, sizeof(image));
     for (j = 0; j < MAX_IMAGES; j++) {
-        make_empty_image(images[j]);
+        images[j] = make_empty_image(0, 0, 0);
         free_images[j] = &images[j];
     }
 }
 
-/* Log the detected objects */
-void log_detections(int w, int h, int num, float thresh, box *boxes, float **probs, char **names, int classes) {
+/* Process the detected objects */
+void process_detections(object_location *obj, int w, int h, int num, float thresh, box *boxes, float **probs, char **names, int classes) {
+    /* This function is adapated from draw_detections() in src/image.c */
     int i, j;
 
-    printf("Objects:\n");
+    printf("Objects:\n"); // TODO Remove after debugging
+
+    /* Find the most probable object at this location */
     for (i = 0; i < num; ++i) {
         int class = -1;
         float prob = 0.0;
 
+        /*
+         * Search through all possible classes, to see if any are above the
+         * given threshold
+         */
         for (j = 0; j < classes; ++j) {
             if (probs[i][j] > thresh) {
-                printf("  %s: %.0f%%\n", names[j], probs[i][j]*100);
-                if (probs[i][j] > prob ) {
+                printf("  %s: %.0f%%\n", names[j], probs[i][j]*100); // TODO Remove after debugging
+
+                /*
+                 * Check if this object is more likely that any other objects at
+                 * this location -- we only want to track one object at any
+                 * given location
+                 */
+                if (probs[i][j] > prob) {
                     class = j;
                     prob = probs[i][j];
                 } else {
-                    printf("    --> not better than %s @ %.0f%%\n", names[class], prob);
+                    printf("    --> not better than %s @ %.0f%%\n", names[class], prob); // TODO Remove after debugging
                 }
             }
         }
+
+        /* Process the object, if one was found */
         if (class >= 0){
-            printf("  %d %s: %.0f%%\n", i, names[class], prob*100);
-
-            /* TODO Implement real notification method via callback or data structure*/
-#if 0
             box b = boxes[i];
+            object_location tmp_obj, tmp2_obj;
 
-            int left  = (b.x-b.w/2.)*w;
-            int right = (b.x+b.w/2.)*w;
-            int top   = (b.y-b.h/2.)*h;
-            int bot   = (b.y+b.h/2.)*h;
+            printf("  %d %s: %.0f%%\n", i, names[class], prob*100); // TODO Remove after debugging
 
-            if(left < 0) left = 0;
-            if(right > w-1) right = w-1;
-            if(top < 0) top = 0;
-            if(bot > h-1) bot = h-1;
-#endif
+            /*
+             * Find location in the list for the object -- it is kept in
+             * descending order of proabability
+             */
+            for (j = 0; j < MAX_OBJECTS_PER_FRAME; j++) {
+                if (obj[j].type == OBJ_NONE || obj[j].probability > prob) {
+                    tmp_obj = obj[j];
+                    break;
+                }
+            }
+
+            /* Add the object to the list */
+            if (j < MAX_OBJECTS_PER_FRAME) {
+                obj[j].type = class + 1; /* Classes start at 0, objects at 1 */
+                obj[j].x = b.x;
+                obj[j].y = b.y;
+                obj[j].width = b.w;
+                obj[j].height = b.h;
+                obj[j].probability = prob;
+            }
+
+            /* Shuffle any lower probability objects down the list */
+            for (; j < MAX_OBJECTS_PER_FRAME; j++) {
+                tmp2_obj = obj[j];
+                obj[j] = tmp_obj;
+
+                /* Check if the last object has been found */
+                if (tmp2_obj.type == OBJ_NONE)
+                    break;
+            }
         }
     }
 }
@@ -191,7 +234,7 @@ void net_free_image_data(void *image_data) {
  * Do the network-specific processing of a new image, and notify if objects are
  * found about the specified threshold
  */
-int net_process_image(void *image_data, float thresh) {
+int net_process_image(void *image_data, float thresh, object_location *objects) {
     static image boxed_image = { 0 };
     static int index = 0;
     image *img = image_data;
@@ -226,7 +269,7 @@ int net_process_image(void *image_data, float thresh) {
     index = (index + 1) % avg_frames;
 
     /* Provide notification of detected objects to the invoking framework */
-    log_detections(img->w, img->h, detections, thresh, boxes, probs, names, classes);
+    process_detections(objects, img->w, img->h, detections, thresh, boxes, probs, names, classes);
 
     return 0;
 }
