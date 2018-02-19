@@ -87,9 +87,11 @@ void net_prepare(void) {
         probs[j] = (float *) calloc(l.classes+1, sizeof(float));
 
     /* Pre-allocated image buffers */
-    image *images = calloc(MAX_IMAGES, sizeof(images));
-    for (j = 0; j < MAX_IMAGES; j++)
+    image *images = calloc(MAX_IMAGES, sizeof(image));
+    for (j = 0; j < MAX_IMAGES; j++) {
+        make_empty_image(images[j]);
         free_images[j] = &images[j];
+    }
 }
 
 /* Log the detected objects */
