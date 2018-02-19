@@ -218,7 +218,7 @@ int main(int argc, char **argv) {
 #endif
 
     /* Build up GStreamer pipepline */
-    char gstreamer_cmd[512] = { '\0' };
+    char gstreamer_cmd[1024] = { '\0' };
     if (opt_replay)
         snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "filesrc location=%s ! avidemux ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, stream_dest_host, stream_dest_port);
     else
