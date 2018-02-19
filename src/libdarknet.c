@@ -108,6 +108,10 @@ void process_detections(object_location *obj, int w, int h, int num, float thres
     /* This function is adapated from draw_detections() in src/image.c */
     int i, j;
 
+    /* Initialize the list of detected objects */
+    for (j = 0; j < MAX_OBJECTS_PER_FRAME; j++)
+        obj[j].type = OBJ_NONE;
+
     printf("Objects:\n"); // TODO Remove after debugging
 
     /* Find the most probable object at this location */
@@ -166,7 +170,7 @@ void process_detections(object_location *obj, int w, int h, int num, float thres
             }
 
             /* Shuffle any lower probability objects down the list */
-            for (; j < MAX_OBJECTS_PER_FRAME; j++) {
+            for (j++; j < MAX_OBJECTS_PER_FRAME; j++) {
                 tmp2_obj = obj[j];
                 obj[j] = tmp_obj;
 
