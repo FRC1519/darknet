@@ -139,10 +139,14 @@ void *detect_thread_impl(void *ptr) {
         if (frame_delta > 1)
             printf("NOTE: Detector missed %d frame(s)\n", frame_delta - 1);
 
+        /* Invoke the recognition network to process the image data */
         if (net_process_image(net_data, thresh, objects) != 0) {
             fprintf(stderr, "Error from recognition network when processing image\n");
             done = 1;
         }
+
+        /* Free the image data */
+        net_free_image_data(net_data);
 
         /* Provide notification about objects */
         notify_objects(objects);
@@ -232,7 +236,7 @@ int main(int argc, char **argv) {
 
         fprintf(stderr, "EXTENSION == %s\n", ext);
         if (ext != NULL && strcmp(ext, ".jpg") == 0)
-            snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "multifilesrc location=%s caps=\"image/jpeg, framerate=30/1\" ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, stream_dest_host, stream_dest_port);
+            snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "multifilesrc location=%s caps=\"image/jpeg, framerate=%s\" ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, cap_fps, stream_dest_host, stream_dest_port);
         else
             snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "filesrc location=%s ! avidemux ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, stream_dest_host, stream_dest_port);
     } else {

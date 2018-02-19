@@ -191,6 +191,7 @@ void *net_get_image_data(IplImage *cv_image) {
         if (free_images[j] != NULL) {
             img = free_images[j];
             free_images[j] = NULL;
+            break;
         }
     }
     pthread_mutex_unlock(&free_image_lock);
