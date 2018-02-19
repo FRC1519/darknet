@@ -1,18 +1,18 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <getopt.h>
+#include <pthread.h>
+#include <opencv2/core/core_c.h>
 
 #include "robot.h"
-#include "darknet.h"
 
 #include "box.h"        // TODO Remove need
-#include "image.h"      // TODO Remove need
 
 /* Default configuration, overridable on the command line */
 int opt_replay = 0;
 int camera_port = 0;
-char *stream_dest_host = "192.168.0.2";
-int stream_dest_port = 1519;
+char *stream_dest_host = "10.15.19.5";
+int stream_dest_port = 1190;
 int cap_width = 640;
 int cap_height = 480;
 char *cap_fps = "30/1";
@@ -25,9 +25,8 @@ char *stream_fps = "30/1";
 float thresh = .24; /* Threshold to be exceeded to be considered worth reporting */
 
 /* Synchronized access to image feed */
+void *next_image_data = NULL;
 int next_frame = 0;
-image next_img = { 0 };
-int image_pending = 0;
 pthread_mutex_t image_lock  = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t image_cv = PTHREAD_COND_INITIALIZER;
 
@@ -83,7 +82,7 @@ void *detect_thread_impl(void *ptr) {
     int last_frame = 0;
     int frame_delta;
     int rv;
-    image img = { 0 };
+    void *net_data;
 
     /* Run until the program is ready to be over */
     while (!done) {
@@ -94,7 +93,7 @@ void *detect_thread_impl(void *ptr) {
         assert(rv == 0);
 
         /* Wait for a new frame */
-        while (!image_pending) {
+        while (next_image_data == NULL) {
             /* Wait for notification that something has been added */
             rv = pthread_cond_wait(&image_cv, &image_lock);
             assert(rv == 0);
@@ -105,31 +104,26 @@ void *detect_thread_impl(void *ptr) {
         frame_delta = next_frame - last_frame;
         if (frame_delta == 0) {
             pthread_mutex_unlock(&image_lock);
-            printf("Detector woke up without a new frame (%d), expected %d frame(s)\n", last_frame, image_pending);
+            printf("Detector woke up without a new frame (still %d)\n", last_frame);
             continue;
         }
-        if (frame_delta != image_pending)
-            printf("NOTE: Expected to find %d new frame(s), but found %d instead\n", image_pending, frame_delta);
 
         /* Get the data from the image */
-        if (img.data == NULL)
-            img = copy_image(next_img);
-        else
-            copy_image_into(next_img, img);
+        net_data = next_image_data;
+        next_image_data = NULL;
         last_frame = next_frame;
-        image_pending = 0;
 
         /* Remove exclusive access */
         pthread_mutex_unlock(&image_lock);
 
         /*
          * Checked for missed frame -- it happens if we cannot detect as quickly
-         * as new frames arrive, but we'd like to know about it
+         * as new frames arrive, and we'd like to know about it
          */
         if (frame_delta > 1)
             printf("NOTE: Detector missed %d frame(s)\n", frame_delta - 1);
 
-        if (net_process_image(img, thresh) != 0) {
+        if (net_process_image(net_data, thresh) != 0) {
             fprintf(stderr, "Error from recognition network when processing image\n");
             done = 1;
         }
@@ -143,23 +137,36 @@ void fetch_frames(CvCapture *cap) {
     int frame = 0;
     int status, rv;
     image new_image = { 0 };
+    IplImage *image;
+    void *net_data;
+    void *old_data;
 
     while (!done) {
         printf("Acquiring frame #%d\n", ++frame);
 
-        if (new_image.data == NULL) {
-            new_image = get_image_from_stream(cap);
-        } else {
-            status = fill_image_from_stream(cap, new_image);
-            if (status == 0) {
-                done = 1;
-                rv = pthread_cond_signal(&image_cv);
-                assert(rv == 0);
-                return;
-            }
+        /* This blocks until a frame is available, or EOS */
+        image = cvQueryFrame(cap);
+        if (!image) {
+            done = 1;
+            rv = pthread_cond_signal(&image_cv);
+            assert(rv == 0);
+            return;
         }
-        assert(new_image.w == cap_width);
-        assert(new_image.h == cap_height);
+        assert(image->width == cap_width);
+        assert(image->height == cap_height);
+
+        /*
+         * Get the data from the frame that the network needs
+         * This serves two purposes:
+         *   1. Ensure the data is saved in the format that the network uses
+         *   2. Allow us to get another image, as we cannot reference the image
+         *      after another call to cvQueryFrame()
+         */
+        net_data = net_get_image_data(image);
+        if (net_data == NULL) {
+            fprintf(stderr, "WARNING: Network unable to process data in frame #%d\n", frame);
+            continue;
+        }
 
         printf("Saving frame #%d for processing\n", frame);
 
@@ -167,17 +174,21 @@ void fetch_frames(CvCapture *cap) {
         rv = pthread_mutex_lock(&image_lock);
         assert(rv == 0);
 
-        /* Update image */
-        if (next_img.data == NULL)
-            next_img = copy_image(new_image);
-        else
-            copy_image_into(new_image, next_img);
+        /* Set the image data as the next to be used */
+        old_data = next_image_data == NULL ? NULL : next_image_data;
+        next_image_data = net_data;
         next_frame = frame;
-        image_pending++;
 
         /* Release exclusivity ASAP */
         rv = pthread_mutex_unlock(&image_lock);
         assert(rv == 0);
+
+        /*
+         * Allow network to free data that never got processed (because we
+         * grabbed another frame first)
+         */
+        if (free_data != NULL)
+            net_free_image_data(image);
 
         /* Notify detector that there might be a new frame */
         rv = pthread_cond_signal(&image_cv);
