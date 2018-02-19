@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <getopt.h>
 #include <pthread.h>
+#include <assert.h>
 #include <opencv2/core/core_c.h>
 #include <opencv2/videoio/videoio_c.h>
 
