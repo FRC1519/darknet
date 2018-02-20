@@ -9,11 +9,11 @@ if [[ $(hostname) == robin ]]; then
     ip="192.168.0.252"
 elif [[ $(hostname) == tegra-ubuntu ]]; then
     sudo="sudo"
-    ip="192.168.0.44"
+    ip="192.168.0.57"
 else
     echo "Unrecognized host"
     exit 1
 fi
 [[ $DEBUG -gt 0 ]] && make_args+=(DEBUG=1)
 
-make "${make_args[@]}" && $sudo env GST_DEBUG=${GST_DEBUG:-2} ./robot --camera 0 --width 640 --height 480 --fps "30/1" --ip "$ip" --port 9999 cfg/obj.data cfg/tiny-yolo-obj2.cfg backup/tiny-yolo-obj2_4600.weights
+make "${make_args[@]}" && $sudo env GST_DEBUG=${GST_DEBUG:-2} ./robot --camera 0 --width 640 --height 480 --fps "15/1" --stream-fps "15/1" --ip "$ip" --port 1190 cfg/obj.data cfg/tiny-yolo-obj2.cfg backup/tiny-yolo-obj2_4600.weights
