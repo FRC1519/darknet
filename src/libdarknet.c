@@ -153,7 +153,7 @@ void process_detections(object_location *obj, int w, int h, int num, float thres
              * descending order of proabability
              */
             for (j = 0; j < MAX_OBJECTS_PER_FRAME; j++) {
-                if (obj[j].type == OBJ_NONE || obj[j].probability > prob) {
+                if (obj[j].type == OBJ_NONE || prob > obj[j].probability) {
                     tmp_obj = obj[j];
                     break;
                 }
