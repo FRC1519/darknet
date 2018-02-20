@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <opencv2/core/types_c.h>
 
 /*
@@ -31,6 +32,24 @@ typedef struct object_location {
 } object_location;
 
 #define MAX_OBJECTS_PER_FRAME 20
+
+#define MAYHEM_MAGIC 0x1519B0B4
+
+typedef struct object_dg {
+    uint32_t type;
+    uint32_t x;
+    uint32_t y;
+    uint32_t width;
+    uint32_t height;
+    uint32_t probability;
+} __attribute__((packed)) object_dg;
+
+typedef struct datagram {
+    uint32_t magic;
+    uint32_t frame_number;
+    uint64_t timestamp;
+    object_dg object_data[MAX_OBJECTS_PER_FRAME];
+} __attribute__((packed)) datagram;
 
 /* Object detection API */
 int   net_parse_arguments(int argc, char **argv);

@@ -105,7 +105,7 @@ void net_prepare(int gpu_idx) {
 
 /* Process the detected objects */
 void process_detections(object_location *obj, int w, int h, int num, float thresh, box *boxes, float **probs, char **names, int classes) {
-    /* This function is adapated from draw_detections() in src/image.c */
+    /* This function is adapted from draw_detections() in src/image.c */
     int i, j;
 
     /* Initialize the list of detected objects */

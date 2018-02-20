@@ -3,6 +3,10 @@
 #include <getopt.h>
 #include <pthread.h>
 #include <assert.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <opencv2/core/core_c.h>
 #include <opencv2/videoio/videoio_c.h>
 
@@ -11,9 +15,12 @@
 /* Default configuration, overridable on the command line */
 int opt_gpu = -1;
 int opt_replay = 0;
+int opt_broadcast = 0;
 int camera_port = 0;
 char *stream_dest_host = "10.15.19.5";
 int stream_dest_port = 1190;
+char *data_host = "10.15.19.255";
+int data_host_port = 5810;
 int cap_width = 640;
 int cap_height = 480;
 char *cap_fps = "30/1";
@@ -34,6 +41,10 @@ pthread_cond_t image_cv = PTHREAD_COND_INITIALIZER;
 /* Global indicator that it's time to be done */
 int done = 0;
 
+/* Globals used for IP network broadcasts */
+struct sockaddr_in svr_addr;
+int sock;
+
 /* Command line options */
 void parse_options(int argc, char **argv) {
     struct option long_opts[] = {
@@ -42,7 +53,9 @@ void parse_options(int argc, char **argv) {
         {"width",         required_argument, NULL, 'W'},
         {"height",        required_argument, NULL, 'H'},
         {"ip",            required_argument, NULL, 'I'},
+        {"data-ip",       required_argument, NULL, 'J'},
         {"port",          required_argument, NULL, 'p'},
+        {"data-port",     required_argument, NULL, 'P'},
         {"fps",           required_argument, NULL, 'f'},
         {"video",         required_argument, NULL, 'V'},
         {"camera",        required_argument, NULL, 'c'},
@@ -51,19 +64,22 @@ void parse_options(int argc, char **argv) {
         {"stream-height", required_argument, NULL, 'S'},
         {"stream-fps",    required_argument, NULL, 'F'},
         {"replay",        no_argument,       NULL, 'R'},
+        {"broadcast",     no_argument,       NULL, 'B'},
         {NULL, 0, NULL, 0}
     };
 
     int long_index = 0;
     int opt;
-    while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:I:p:f:V:c:b:s:S:F:R", long_opts, &long_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:I:J:p:P:f:V:c:b:s:S:F:RB", long_opts, &long_index)) != -1) {
         switch (opt) {
             case 'i': opt_gpu = atoi(optarg); break;
             case 't': thresh = atof(optarg); break;
             case 'W': cap_width = atoi(optarg); break;
             case 'H': cap_height = atoi(optarg); break;
             case 'I': stream_dest_host = optarg; break;
+            case 'J': data_host = optarg; break;
             case 'p': stream_dest_port = atoi(optarg); break;
+            case 'P': data_host_port = atoi(optarg); break;
             case 'f': cap_fps = optarg; break;
             case 'V': video_filename = optarg; break;
             case 'c': camera_port = atoi(optarg); break;
@@ -72,6 +88,7 @@ void parse_options(int argc, char **argv) {
             case 'S': stream_height = atoi(optarg); break;
             case 'F': stream_fps = optarg; break;
             case 'R': opt_replay = 1; break;
+            case 'B': opt_broadcast = 1; break;
             default:
                 fprintf(stderr, "Usage error\n");
                 exit(1);
@@ -79,18 +96,81 @@ void parse_options(int argc, char **argv) {
     }
 }
 
+/* Initialize the IP network */
+void ip_network_init(void) {
+    struct hostent *svr_host;
+    int rv;
+
+    /* Look up the server IP address */
+    svr_host = gethostbyname(data_host);
+    if (svr_host == NULL) {
+        fprintf(stderr, "Unknown data host (%s)\n", data_host);
+        exit(1);
+    }
+    
+    /* Initialize server address */
+    svr_addr.sin_family = svr_host->h_addrtype;
+    memcpy(&svr_addr.sin_addr.s_addr, svr_host->h_addr_list[0], svr_host->h_length);
+    svr_addr.sin_port = htons(data_host_port);
+
+    /* Create datagram socket for communication */
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        fprintf(stderr, "Failed to open socket\n");
+        exit(1);
+    }
+
+    /* Configure the socket for broadcasting */
+    if (opt_broadcast) {
+        if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &opt_broadcast, sizeof(opt_broadcast)) == -1) {
+            perror("Failed to configure socket for broadcasting");
+            exit(1);
+        }
+    }
+
+    /* Set up the local address flexibly */
+    struct sockaddr_in our_addr = {
+        .sin_family = AF_INET,
+        .sin_addr.s_addr = htonl(INADDR_ANY),
+        .sin_port = htons(0),
+    };
+
+    /* Bind the socket locally */
+    rv = bind(sock, (struct sockaddr *)&our_addr, sizeof(our_addr));
+    if (rv < 0) {
+        fprintf(stderr, "Cannot bind to local port\n");
+        exit(1);
+    }
+}
+
 /* Provide notification about detected objects */
-void notify_objects(object_location *objects) {
-    /* TODO Notify robot and OI via the network */
+void notify_objects(object_location *objects, int frame) {
+    datagram data = { 0 };
+    int rv;
+
+    data.magic = MAYHEM_MAGIC;
+    data.frame_number = frame;
+    data.timestamp = -1; // TODO
 
     for (int i = 0; i < MAX_OBJECTS_PER_FRAME; i++) {
         /* Quit early if no more objects */
         if (objects[i].type == OBJ_NONE)
             break;
 
-        printf("OBJECT FOUND: Type %d @ %.02f x %.02f [ %.02f x %.02f ], %.02f%%\n", objects[i].type, objects[i].x, objects[i].y, objects[i].width, objects[i].height, objects[i].probability);
+        data.object_data[i].type = objects[i].type;
+        data.object_data[i].x = objects[i].x * UINT32_MAX;
+        data.object_data[i].y = objects[i].y * UINT32_MAX;
+        data.object_data[i].width = objects[i].width * UINT32_MAX;
+        data.object_data[i].height = objects[i].height * UINT32_MAX;
+        data.object_data[i].probability = objects[i].probability * UINT32_MAX;
     }
+
+    /* Broadcast notification of objects */
+    rv = sendto(sock, &data, sizeof(data), 0, (struct sockaddr *)&svr_addr, sizeof(svr_addr));
+    if (rv < 0)
+        fprintf(stderr, "WARNING: Failed to send notification about objects in frame #%u\n", data.frame_number);
 }
+//printf("OBJECT FOUND: Type %d @ %.02f x %.02f [ %.02f x %.02f ], %.02f%%\n", objects[i].type, objects[i].x, objects[i].y, objects[i].width, objects[i].height, objects[i].probability);
 
 /* Detected objects in frames as they are found */
 void *detect_thread_impl(void *ptr) {
@@ -149,7 +229,7 @@ void *detect_thread_impl(void *ptr) {
         net_free_image_data(net_data);
 
         /* Provide notification about objects */
-        notify_objects(objects);
+        notify_objects(objects, last_frame);
     }
 
     return NULL;
@@ -254,6 +334,9 @@ int main(int argc, char **argv) {
     /* Kick off the Darknet magic */
     printf("Preparing network...\n");
     net_prepare(opt_gpu);
+
+    /* Prepare the IP network */
+    ip_network_init();
 
     /* Start detector asynchronously */
     pthread_t detect_thread;
