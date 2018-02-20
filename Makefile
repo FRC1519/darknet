@@ -65,14 +65,17 @@ OBJ+=convolutional_kernels.o deconvolutional_kernels.o activation_kernels.o im2c
 endif
 ROBOT_OBJ=robot.o libdarknet.o
 ROBOT_EXEC=robot
+OI_OBJ=oitest.o
+OI_EXEC=oitest
 
 EXECOBJ = $(addprefix $(OBJDIR), $(EXECOBJA))
 OBJS = $(addprefix $(OBJDIR), $(OBJ))
 ROBOT_OBJS = $(addprefix $(OBJDIR), $(ROBOT_OBJ))
+OI_OBJS = $(addprefix $(OBJDIR), $(OI_OBJ))
 DEPS = $(wildcard src/*.h) Makefile include/darknet.h
 
 #all: obj backup results $(SLIB) $(ALIB) $(EXEC)
-all: obj  results $(SLIB) $(ALIB) $(EXEC) $(ROBOT_EXEC)
+all: obj  results $(SLIB) $(ALIB) $(EXEC) $(ROBOT_EXEC) $(OI_EXEC)
 
 
 $(EXEC): $(EXECOBJ) $(ALIB)
@@ -80,6 +83,9 @@ $(EXEC): $(EXECOBJ) $(ALIB)
 
 $(ROBOT_EXEC): $(ROBOT_OBJS) $(ALIB)
 	$(CC) $(COMMON) $(CFLAGS) $^ -o $@ $(LDFLAGS) $(ALIB)
+
+$(OI_EXEC): $(OI_OBJS)
+	$(CC) $(COMMON) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 $(ALIB): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^

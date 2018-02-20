@@ -20,6 +20,7 @@ darknet
 robot
 libdarknet.a
 libdarknet.so
+oitest
 .fuse*
 
 # OS Generated #

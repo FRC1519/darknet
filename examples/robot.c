@@ -3,6 +3,7 @@
 #include <getopt.h>
 #include <pthread.h>
 #include <assert.h>
+#include <sys/time.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -146,11 +147,18 @@ void ip_network_init(void) {
 /* Provide notification about detected objects */
 void notify_objects(object_location *objects, int frame) {
     datagram data = { 0 };
+    struct timeval tv;
     int rv;
+    
+    rv = gettimeofday(&tv, NULL);
+    if (rv < 0) {
+        fprintf(stderr, "Failed to get time of day\n");
+        exit(1);
+    }
 
     data.magic = MAYHEM_MAGIC;
     data.frame_number = frame;
-    data.timestamp = -1; // TODO
+    data.timestamp = tv.tv_sec * 1000000ULL + tv.tv_usec;
 
     for (int i = 0; i < MAX_OBJECTS_PER_FRAME; i++) {
         /* Quit early if no more objects */
@@ -170,7 +178,6 @@ void notify_objects(object_location *objects, int frame) {
     if (rv < 0)
         fprintf(stderr, "WARNING: Failed to send notification about objects in frame #%u\n", data.frame_number);
 }
-//printf("OBJECT FOUND: Type %d @ %.02f x %.02f [ %.02f x %.02f ], %.02f%%\n", objects[i].type, objects[i].x, objects[i].y, objects[i].width, objects[i].height, objects[i].probability);
 
 /* Detected objects in frames as they are found */
 void *detect_thread_impl(void *ptr) {
