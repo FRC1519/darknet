@@ -135,8 +135,6 @@ void process_detections(object_location *obj, int w, int h, int num, float thres
                 if (probs[i][j] > prob) {
                     class = j;
                     prob = probs[i][j];
-                } else {
-                    printf("    --> not better than %s @ %.0f%%\n", names[class], prob); // TODO Remove after debugging
                 }
             }
         }
@@ -173,6 +171,7 @@ void process_detections(object_location *obj, int w, int h, int num, float thres
             for (j++; j < MAX_OBJECTS_PER_FRAME; j++) {
                 tmp2_obj = obj[j];
                 obj[j] = tmp_obj;
+                tmp_obj = tmp2_obj;
 
                 /* Check if the last object has been found */
                 if (tmp2_obj.type == OBJ_NONE)
