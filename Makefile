@@ -92,7 +92,7 @@ $(OI_EXEC): $(OI_OBJS)
 	$(CC) $(COMMON) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 $(OL_JAR): $(OL_OBJS)
-	jar cvfe $@ org.mayheminc.ObjectListener $(patsubst $(OBJDIR)/%,-C $(OBJDIR) %,$(wildcard $(addprefix $(OBJDIR)/$(JAVA_DIR)/,$(patsubst %.class,%*.class,$(OL_OBJ)))))
+	jar cvfe $@ org.mayheminc.ObjectListener $(patsubst $(OBJDIR)/%,-C '$(OBJDIR)' '%',$(wildcard $(addprefix $(OBJDIR)/$(JAVA_DIR)/,$(patsubst %.class,%*.class,$(OL_OBJ)))))
 
 $(ALIB): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
