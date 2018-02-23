@@ -21,6 +21,8 @@ robot
 libdarknet.a
 libdarknet.so
 oitest
+*.jar
+*.class
 .fuse*
 
 # OS Generated #

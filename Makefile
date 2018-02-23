@@ -67,15 +67,19 @@ ROBOT_OBJ=robot.o libdarknet.o
 ROBOT_EXEC=robot
 OI_OBJ=oitest.o
 OI_EXEC=oitest
+OL_OBJ=ObjectListener.class ObjectLocation.class
+OL_JAR=ObjectListener.jar
 
 EXECOBJ = $(addprefix $(OBJDIR), $(EXECOBJA))
 OBJS = $(addprefix $(OBJDIR), $(OBJ))
 ROBOT_OBJS = $(addprefix $(OBJDIR), $(ROBOT_OBJ))
 OI_OBJS = $(addprefix $(OBJDIR), $(OI_OBJ))
+OL_OBJS = $(addprefix $(OBJDIR), $(OL_OBJ))
 DEPS = $(wildcard src/*.h) Makefile include/darknet.h
+JAVA_DIR = org/mayheminc
 
 #all: obj backup results $(SLIB) $(ALIB) $(EXEC)
-all: obj  results $(SLIB) $(ALIB) $(EXEC) $(ROBOT_EXEC) $(OI_EXEC)
+all: obj  results $(SLIB) $(ALIB) $(EXEC) $(ROBOT_EXEC) $(OI_EXEC) $(OL_JAR)
 
 
 $(EXEC): $(EXECOBJ) $(ALIB)
@@ -87,11 +91,17 @@ $(ROBOT_EXEC): $(ROBOT_OBJS) $(ALIB)
 $(OI_EXEC): $(OI_OBJS)
 	$(CC) $(COMMON) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
+$(OL_JAR): $(OL_OBJS)
+	jar cvfe $@ org.mayheminc.ObjectListener $(addprefix -C $(OBJDIR) $(JAVA_DIR)/,$(OL_OBJ))
+
 $(ALIB): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
 
 $(SLIB): $(OBJS)
 	$(CC) $(CFLAGS) -shared $^ -o $@ $(LDFLAGS)
+
+$(OBJDIR)%.class: $(JAVA_DIR)/%.java
+	javac -verbose -d "$(OBJDIR)" -cp "$(OBJDIR)" -Werror $<
 
 $(OBJDIR)%.o: %.c $(DEPS)
 	$(CC) $(COMMON) $(CFLAGS) -c $< -o $@

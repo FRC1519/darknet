@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <assert.h>
 #include <sys/time.h>
+#include <endian.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -156,21 +157,21 @@ void notify_objects(object_location *objects, int frame) {
         exit(1);
     }
 
-    data.magic = MAYHEM_MAGIC;
-    data.frame_number = frame;
-    data.timestamp = tv.tv_sec * 1000000ULL + tv.tv_usec;
+    data.magic = htobe32(MAYHEM_MAGIC);
+    data.frame_number = htobe32(frame);
+    data.timestamp = htobe64(tv.tv_sec * 1000000ULL + tv.tv_usec);
 
     for (int i = 0; i < MAX_OBJECTS_PER_FRAME; i++) {
         /* Quit early if no more objects */
         if (objects[i].type == OBJ_NONE)
             break;
 
-        data.object_data[i].type = objects[i].type;
-        data.object_data[i].x = objects[i].x * UINT32_MAX;
-        data.object_data[i].y = objects[i].y * UINT32_MAX;
-        data.object_data[i].width = objects[i].width * UINT32_MAX;
-        data.object_data[i].height = objects[i].height * UINT32_MAX;
-        data.object_data[i].probability = objects[i].probability * UINT32_MAX;
+        data.object_data[i].type = htobe32(objects[i].type);
+        data.object_data[i].x = htobe32(objects[i].x * UINT32_MAX);
+        data.object_data[i].y = htobe32(objects[i].y * UINT32_MAX);
+        data.object_data[i].width = htobe32(objects[i].width * UINT32_MAX);
+        data.object_data[i].height = htobe32(objects[i].height * UINT32_MAX);
+        data.object_data[i].probability = htobe32(objects[i].probability * UINT32_MAX);
     }
 
     /* Broadcast notification of objects */

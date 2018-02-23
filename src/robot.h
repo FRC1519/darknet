@@ -19,6 +19,14 @@ typedef enum object_types {
     OBJ_EXCHANGE_BLUE,
     OBJ_BUMPERS_RED,
     OBJ_BUMPERS_BLUE,
+    OBJ_CLASS13,
+    OBJ_CLASS14,
+    OBJ_CLASS15,
+    OBJ_CLASS16,
+    OBJ_CLASS17,
+    OBJ_CLASS18,
+    OBJ_CLASS19,
+    OBJ_CLASS20,
     OBJ_EOL,
 } object_type;
 

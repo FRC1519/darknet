@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#include <endian.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -54,22 +55,22 @@ int main(int argc, char **argv) {
             fprintf(stderr, "WARNING: received %zd bytes instead of %zu bytes\n", n, sizeof(data));
             continue;
         }
-        if (data.magic != MAYHEM_MAGIC) {
+        if (be32toh(data.magic) != MAYHEM_MAGIC) {
             fprintf(stderr, "WARNING: malformed datagram received\n");
             continue;
         }
 
-        printf("Received frame %" PRIu32 " sent at %" PRIu64 "\n", data.frame_number, data.timestamp);
+        printf("Received frame %" PRIu32 " sent at %" PRIu64 "\n", be32toh(data.frame_number), be32toh(data.timestamp));
         for (int i = 0; i < MAX_OBJECTS_PER_FRAME; i++) {
-            obj_loc.type = data.object_data[i].type;
+            obj_loc.type = be32toh(data.object_data[i].type);
             if (obj_loc.type == OBJ_NONE)
                 break;
-            obj_loc.x = (float)data.object_data[i].x / UINT32_MAX;
-            obj_loc.y = (float)data.object_data[i].y / UINT32_MAX;
-            obj_loc.width = (float)data.object_data[i].width / UINT32_MAX;
-            obj_loc.height = (float)data.object_data[i].height / UINT32_MAX;
-            obj_loc.probability = (float)data.object_data[i].probability / UINT32_MAX;
-            printf("OBJECT FOUND in frame #%" PRIu32 ": Type %d @ %.02f x %.02f [ %.02f x %.02f ], %.02f%%\n", data.frame_number, obj_loc.type, obj_loc.x, obj_loc.y, obj_loc.width, obj_loc.height, obj_loc.probability);
+            obj_loc.x = (float)be32toh(data.object_data[i].x) / UINT32_MAX;
+            obj_loc.y = (float)be32toh(data.object_data[i].y) / UINT32_MAX;
+            obj_loc.width = (float)be32toh(data.object_data[i].width) / UINT32_MAX;
+            obj_loc.height = (float)be32toh(data.object_data[i].height) / UINT32_MAX;
+            obj_loc.probability = (float)be32toh(data.object_data[i].probability) / UINT32_MAX;
+            printf("OBJECT FOUND in frame #%" PRIu32 ": Type %d @ %.02f x %.02f [ %.02f x %.02f ], %.02f%%\n", be32toh(data.frame_number), obj_loc.type, obj_loc.x, obj_loc.y, obj_loc.width, obj_loc.height, obj_loc.probability);
         }
     }
 
