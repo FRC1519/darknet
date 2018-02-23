@@ -167,11 +167,11 @@ void notify_objects(object_location *objects, int frame) {
             break;
 
         data.object_data[i].type = htobe32(objects[i].type);
-        data.object_data[i].x = htobe32(objects[i].x * UINT32_MAX);
-        data.object_data[i].y = htobe32(objects[i].y * UINT32_MAX);
-        data.object_data[i].width = htobe32(objects[i].width * UINT32_MAX);
-        data.object_data[i].height = htobe32(objects[i].height * UINT32_MAX);
-        data.object_data[i].probability = htobe32(objects[i].probability * UINT32_MAX);
+        data.object_data[i].x = htobe32(objects[i].x * INT32_MAX);
+        data.object_data[i].y = htobe32(objects[i].y * INT32_MAX);
+        data.object_data[i].width = htobe32(objects[i].width * INT32_MAX);
+        data.object_data[i].height = htobe32(objects[i].height * INT32_MAX);
+        data.object_data[i].probability = htobe32(objects[i].probability * INT32_MAX);
     }
 
     /* Broadcast notification of objects */

@@ -1,6 +1,7 @@
 package org.mayheminc;
 
 import java.nio.*;
+import java.text.DecimalFormat;
 
 public class ObjectLocation {
     public enum ObjectTypes {
@@ -38,5 +39,20 @@ public class ObjectLocation {
     public ObjectLocation() {
         type = ObjectTypes.OBJ_NONE;
         x = y = width = height = probability = 0;
+    }
+
+    public ObjectLocation(ByteBuffer buffer) {
+        type = ObjectTypes.values()[buffer.getInt()];
+        x = (float)buffer.getInt() / Integer.MAX_VALUE;
+        y = (float)buffer.getInt() / Integer.MAX_VALUE;
+        width = (float)buffer.getInt() / Integer.MAX_VALUE;
+        height = (float)buffer.getInt() / Integer.MAX_VALUE;
+        probability = (float)buffer.getInt() / Integer.MAX_VALUE;
+    }
+
+    public String toString() {
+        DecimalFormat df = new DecimalFormat("0.00");
+
+        return type.name() + "@" + df.format(x) + "x" + df.format(y) + "+" + df.format(width) + "x" + df.format(height) + "[" + df.format(probability) + "%]";
     }
 }

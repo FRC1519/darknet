@@ -43,22 +43,18 @@ public class ObjectListener extends Thread {
 
                 int frame = wrapped.getInt();
                 long timestamp = wrapped.getLong();
+                /* TODO Reject older things */
+
                 ObjectLocation loc = new ObjectLocation();
 
                 System.out.println("Received frame " + frame + " sent at " + timestamp);
                 for (int i = 0; i < MAX_OBJECTS_PER_FRAME; i++) {
-                    loc.type = ObjectLocation.ObjectTypes.values()[wrapped.getInt()];
-                    if (loc.type == ObjectLocation.ObjectTypes.OBJ_NONE)
-                        break;
-                    loc.x = wrapped.getInt();
-                    loc.y = wrapped.getInt();
-                    loc.width = wrapped.getInt();
-                    loc.height = wrapped.getInt();
-                    loc.probability = wrapped.getInt();
+                    loc = new ObjectLocation(wrapped);
 
-                    System.out.println("Object found");
+                    System.out.println("Object found: " + loc);
                 }
 
+                /* TODO Add to a list */
             } catch (IOException e) {
                 e.printStackTrace();
                 break;
@@ -67,4 +63,8 @@ public class ObjectListener extends Thread {
 
         socket.close();
     }
+
+    /* TODO Convert to a Thread */
+    /* TODO Add API to return list of objects */
+    /* TODO Make main a wrapper around API */
 }
