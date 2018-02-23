@@ -1,70 +1,117 @@
 package org.mayheminc;
 
+import java.util.*;
 import java.net.*;
 import java.io.*;
 import java.nio.*;
 import org.mayheminc.ObjectLocation;
 
 public class ObjectListener extends Thread {
-
     protected static final int MAX_OBJECTS_PER_FRAME = 20;
-
     protected static final int MAYHEM_MAGIC = 0x1519B0B4;
-
     protected static final int MAX_BUFFER = 1500;
-
     protected static final int DEFAULT_PORT = 5810;
 
-    public static void main(String[] args) {
-        System.out.println("Hello, world!");
+    private DatagramSocket socket;
+    private DatagramPacket packet;
+    private ByteBuffer buffer;
+    private int lastFrame = 0;
+    private ArrayList<ObjectLocation> objList;
 
-        DatagramSocket socket = null;
+    public ObjectListener() throws SocketException {
+        this(DEFAULT_PORT);
+    }
+
+    public ObjectListener(int port) throws SocketException {
+        super("ObjectListener-" + port);
+
+        socket = new DatagramSocket(port);
+
+        byte[] byteBuffer = new byte[MAX_BUFFER];
+        packet = new DatagramPacket(byteBuffer, byteBuffer.length);
+        buffer = ByteBuffer.wrap(byteBuffer);
+    }
+
+    public int getLastFrame() {
+        return lastFrame;
+    }
+
+    public List getObjectList() {
+        return objList;
+    }
+
+    public void run() {
+        long lastTimestamp = 0;
+
+        System.out.println("Running and awaiting packets...\n"); // TODO Remove
+
+        while (true) {
+            try {
+                // Receive new datagram
+                socket.receive(packet);
+                buffer.rewind();
+            } catch (IOException e) {
+                System.err.println(super.getName() + " encountered an error");
+                e.printStackTrace();
+                System.err.println(super.getName() + " aborting");
+                break;
+            }
+
+            // Validate packet
+            int magic = buffer.getInt();
+            if (magic != MAYHEM_MAGIC) {
+                System.err.println("Invalid packet received (magic == 0x" + Integer.toHexString(magic) + ")");
+                continue;
+            }
+
+            // Get information about the update
+            int frame = buffer.getInt();
+            long timestamp = buffer.getLong();
+
+            // Check for out-of-date data
+            if (frame <= lastFrame) {
+                System.err.println("Rejecting older frame #" + frame + " (already have frame #" + lastFrame + ")");
+                continue;
+            }
+            if (timestamp <= lastTimestamp) {
+                System.err.println("Oddly, timestamp for new frame #" + frame + " (" + timestamp + ") is not newer than that for previous frame #" + lastFrame + " (" + lastTimestamp + ")");
+            }
+
+            // TODO Remove
+            System.out.println("Received frame " + frame + " sent at " + timestamp);
+
+            // Get list of all objects involved
+            ArrayList<ObjectLocation> objList = new ArrayList<ObjectLocation>();
+            for (int i = 0; i < MAX_OBJECTS_PER_FRAME; i++) {
+                ObjectLocation loc = new ObjectLocation(buffer);
+                objList.add(loc);
+
+                System.out.println("Object found: " + loc); // TODO Remove
+            }
+
+            // Update the list of objects
+            this.objList = objList;
+            lastFrame = frame;
+            lastTimestamp = timestamp;
+        }
+
+        // Clean up
+        socket.close();
+    }
+
+    public static void main(String[] args) {
+        ObjectListener listener;
+
 
         try {
-            socket = new DatagramSocket(DEFAULT_PORT);
+            listener = new ObjectListener();
         } catch (SocketException e) {
             e.printStackTrace();
             return;
         }
 
-        byte[] buf = new byte[MAX_BUFFER];
-        DatagramPacket packet = new DatagramPacket(buf, buf.length);
-        ByteBuffer wrapped = ByteBuffer.wrap(buf);
-        while (true) {
-            try {
-                socket.receive(packet);
-                wrapped.rewind();
+        listener.start();
 
-                int magic = wrapped.getInt();
-                if (magic != MAYHEM_MAGIC) {
-                    System.err.println("Invalid packet received (magic == 0x" + Integer.toHexString(magic) + ")");
-                    continue;
-                }
-
-                int frame = wrapped.getInt();
-                long timestamp = wrapped.getLong();
-                /* TODO Reject older things */
-
-                ObjectLocation loc = new ObjectLocation();
-
-                System.out.println("Received frame " + frame + " sent at " + timestamp);
-                for (int i = 0; i < MAX_OBJECTS_PER_FRAME; i++) {
-                    loc = new ObjectLocation(wrapped);
-
-                    System.out.println("Object found: " + loc);
-                }
-
-                /* TODO Add to a list */
-            } catch (IOException e) {
-                e.printStackTrace();
-                break;
-            }
-        }
-
-        socket.close();
+        // TODO Iterate over results and print them out
     }
-
-    /* TODO Convert to a Thread */
-    /* TODO Add API to return list of objects */
-    /* TODO Make main a wrapper around API */
 }
