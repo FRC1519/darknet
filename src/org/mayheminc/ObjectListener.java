@@ -81,14 +81,12 @@ public class ObjectListener extends Thread {
             long timestamp = buffer.getLong();
 
             // Check for out-of-date data
-            // TODO Would it be better to reject by timestamp, in case the
-            // vision restarted but the listener did not?
-            if (frame <= lastFrame) {
-                System.err.println(name + ": rejecting older frame #" + frame + " (already have frame #" + lastFrame + ")");
+            if (timestamp <= lastTimestamp) {
+                System.err.println(name + ": timestamp for new frame #" + frame + " (" + timestamp + ") is not newer than that for previous frame #" + lastFrame + " (" + lastTimestamp + "); rejecting out-of-date data");
                 continue;
             }
-            if (timestamp <= lastTimestamp) {
-                System.err.println(name + ": timestamp for new frame #" + frame + " (" + timestamp + ") is not newer than that for previous frame #" + lastFrame + " (" + lastTimestamp + ")");
+            if (frame <= lastFrame) {
+                System.err.println(name + ": frame #" + frame + " is earlier than existing frame #" + lastFrame + "; did object detection service restart?");
             }
 
             // Get list of all objects involved
