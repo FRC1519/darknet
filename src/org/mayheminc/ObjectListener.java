@@ -1,8 +1,8 @@
 package org.mayheminc;
 
 import java.util.*;
-import java.net.*;
 import java.io.*;
+import java.net.*;
 import java.nio.*;
 import org.mayheminc.ObjectLocation;
 
@@ -17,6 +17,11 @@ public class ObjectListener extends Thread {
     private ByteBuffer buffer;
     private int lastFrame = 0;
     private ArrayList<ObjectLocation> objList;
+    private Callback callback = null;
+
+    public interface Callback {
+        public void objectListenerCallback(int frame, ArrayList<ObjectLocation> objList);
+    }
 
     public ObjectListener() throws SocketException {
         this(DEFAULT_PORT);
@@ -40,14 +45,17 @@ public class ObjectListener extends Thread {
         return objList;
     }
 
+    public void setCallback(Callback callback) {
+        this.callback = callback;
+    }
+
     public void run() {
+        String name = super.getName();
         long lastTimestamp = 0;
 
-        System.out.println("Running and awaiting packets...\n"); // TODO Remove
-
         while (true) {
+            // Receive new datagram
             try {
-                // Receive new datagram
                 socket.receive(packet);
                 buffer.rewind();
             } catch (IOException e) {
@@ -57,10 +65,14 @@ public class ObjectListener extends Thread {
                 break;
             }
 
+            // Abort if told to do so
+            if (this.interrupted())
+                break;
+
             // Validate packet
             int magic = buffer.getInt();
             if (magic != MAYHEM_MAGIC) {
-                System.err.println("Invalid packet received (magic == 0x" + Integer.toHexString(magic) + ")");
+                System.err.println(name + ": invalid packet received (magic == 0x" + Integer.toHexString(magic) + ")");
                 continue;
             }
 
@@ -69,16 +81,15 @@ public class ObjectListener extends Thread {
             long timestamp = buffer.getLong();
 
             // Check for out-of-date data
+            // TODO Would it be better to reject by timestamp, in case the
+            // vision restarted but the listener did not?
             if (frame <= lastFrame) {
-                System.err.println("Rejecting older frame #" + frame + " (already have frame #" + lastFrame + ")");
+                System.err.println(name + ": rejecting older frame #" + frame + " (already have frame #" + lastFrame + ")");
                 continue;
             }
             if (timestamp <= lastTimestamp) {
-                System.err.println("Oddly, timestamp for new frame #" + frame + " (" + timestamp + ") is not newer than that for previous frame #" + lastFrame + " (" + lastTimestamp + ")");
+                System.err.println(name + ": timestamp for new frame #" + frame + " (" + timestamp + ") is not newer than that for previous frame #" + lastFrame + " (" + lastTimestamp + ")");
             }
-
-            // TODO Remove
-            System.out.println("Received frame " + frame + " sent at " + timestamp);
 
             // Get list of all objects involved
             ArrayList<ObjectLocation> objList = new ArrayList<ObjectLocation>();
@@ -92,23 +103,36 @@ public class ObjectListener extends Thread {
 
                 // Add object to our list
                 objList.add(loc);
-                System.out.println("Object found: " + loc); // TODO Remove
             }
 
             // Update the list of objects
             this.objList = objList;
             lastFrame = frame;
             lastTimestamp = timestamp;
+
+            // Invoke callback, if applicable
+            if (callback != null) {
+                callback.objectListenerCallback(frame, objList);
+            }
         }
 
         // Clean up
         socket.close();
     }
 
+    // Sample implementation for testing and demonstration purposes
     public static void main(String[] args) {
         ObjectListener listener;
+        Callback callback = new ObjectListener.Callback() {
+            public void objectListenerCallback(int frame, ArrayList<ObjectLocation> objList) {
+                System.out.println("Received notification about objects in frame #" + frame);
+                for (ObjectLocation loc: objList) {
+                    System.out.println("  " + loc);
+                }
+            }
+        };
 
-
+        // Create the listener
         try {
             listener = new ObjectListener();
         } catch (SocketException e) {
@@ -116,8 +140,20 @@ public class ObjectListener extends Thread {
             return;
         }
 
+        // Use the callback implementation
+        listener.setCallback(callback);
+
+        // Begin listening
+        System.out.println("Starting object listener...\n");
         listener.start();
 
-        // TODO Iterate over results and print them out
+        // Wait forever -- notifications will come from callback
+        while (true) {
+            try {
+                Thread.sleep(600);
+            } catch (InterruptedException e) {
+                break;
+            }
+        }
     }
 }
