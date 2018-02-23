@@ -83,9 +83,15 @@ public class ObjectListener extends Thread {
             // Get list of all objects involved
             ArrayList<ObjectLocation> objList = new ArrayList<ObjectLocation>();
             for (int i = 0; i < MAX_OBJECTS_PER_FRAME; i++) {
+                // Pull the next object from the buffer
                 ObjectLocation loc = new ObjectLocation(buffer);
-                objList.add(loc);
 
+                // As soon as one object is none, so are the rest
+                if (loc.type == ObjectLocation.ObjectTypes.OBJ_NONE)
+                    break;
+
+                // Add object to our list
+                objList.add(loc);
                 System.out.println("Object found: " + loc); // TODO Remove
             }
 
