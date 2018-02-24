@@ -65,6 +65,7 @@ OBJ+=convolutional_kernels.o deconvolutional_kernels.o activation_kernels.o im2c
 endif
 ROBOT_OBJ=robot.o libdarknet.o
 ROBOT_EXEC=robot
+ROBOT_RUN=robot-run
 OI_OBJ=oitest.o
 OI_EXEC=oitest
 OL_OBJ=ObjectListener.class ObjectLocation.class
@@ -77,6 +78,7 @@ OI_OBJS = $(addprefix $(OBJDIR), $(OI_OBJ))
 OL_OBJS = $(addprefix $(OBJDIR), $(OL_OBJ))
 DEPS = $(wildcard src/*.h) Makefile include/darknet.h
 JAVA_DIR = org/mayheminc
+CFG_FILES = cfg/obj.data cfg/tiny-yolo-obj2.cfg backup/tiny-yolo-obj2_4600.weights
 
 #all: obj backup results $(SLIB) $(ALIB) $(EXEC)
 all: obj  results $(SLIB) $(ALIB) $(EXEC) $(ROBOT_EXEC) $(OI_EXEC) $(OL_JAR)
@@ -116,8 +118,13 @@ backup:
 results:
 	mkdir -p results
 
-.PHONY: clean
+.PHONY: clean install
 
 clean:
 	rm -rf $(OBJS) $(SLIB) $(ALIB) $(EXEC) $(EXECOBJ)
 
+install: $(ROBOT_EXEC) $(ROBOT_RUN) $(CFG_FILES)
+	install -m 0755 -t /usr/local/bin $(ROBOT_EXEC) $(OI_EXEC) $(ROBOT_RUN)
+	install -m 0755 -d /usr/local/share/robot
+	install -m 0644 -t /usr/local/share/robot $(CFG_FILES)
+	install -m 0755 -d /var/local/robot
