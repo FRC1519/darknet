@@ -1,7 +1,7 @@
 #!/bin/bash
 
 declare -r bin=$(readlink -f "$(dirname "${BASE_SOURCE[0]}")")
-declare -r share=$(readlink -f "$bin/../share")
+declare -r share=$(readlink -f "$bin/../share/robot")
 declare -r var="/var/local/robot"
 
 declare -r threshold="0.15"
@@ -10,10 +10,10 @@ declare -r cap_fps="15/1"
 declare -r stream_fps="15/1"
 declare -r oi_ip="10.15.19.5"
 declare -r robot_ip="10.15.19.2"
-declare -r -a cfg_files="$share/robot/obj.data $share/tiny-yolo-obj2.cfg $share/tiny-yolo-obj2_4600.weights"
+declare -r -a cfg_files="$share/obj.data $share/tiny-yolo-obj.cfg $share/tiny-yolo-obj.backup"
 declare -r timestamp=$(date --iso-8601=seconds)
-declare -r video="/var/local/robot/capture-$timestamp.avi"
-declare -r datalog="/var/local/robot/datalog-$tmpstamp.cvs"
+declare -r video="$var/capture-$timestamp.avi"
+declare -r datalog="$var/datalog-$tmpstamp.cvs"
 
 # TODO update from latest AI network
 

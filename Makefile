@@ -78,7 +78,7 @@ OI_OBJS = $(addprefix $(OBJDIR), $(OI_OBJ))
 OL_OBJS = $(addprefix $(OBJDIR), $(OL_OBJ))
 DEPS = $(wildcard src/*.h) Makefile include/darknet.h
 JAVA_DIR = org/mayheminc
-CFG_FILES = cfg/obj.data cfg/tiny-yolo-obj2.cfg backup/tiny-yolo-obj2_4600.weights
+CFG_FILES = cfg/obj.data cfg/tiny-yolo-obj.cfg backup/tiny-yolo-obj.backup
 
 #all: obj backup results $(SLIB) $(ALIB) $(EXEC)
 all: obj  results $(SLIB) $(ALIB) $(EXEC) $(ROBOT_EXEC) $(OI_EXEC) $(OL_JAR)

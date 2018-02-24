@@ -19,4 +19,4 @@ fi
 
 ulimit -c unlimited
 set -x
-make "${make_args[@]}" && $sudo env GST_DEBUG=${GST_DEBUG:-2} ./robot --thresh 0.001 --camera 0 --width 640 --height 480 --fps "15/1" --stream-fps "15/1" --ip "$stream_ip" --port 1190 --bitrate 750000 --data-ip "$data_ip" --broadcast cfg/obj.data cfg/tiny-yolo-obj2.cfg backup/tiny-yolo-obj2_4600.weights
+make "${make_args[@]}" && $sudo env GST_DEBUG=${GST_DEBUG:-2} ./robot --thresh 0.05 --camera 0 --fps "15/1" --stream-fps "15/1" --ip "$stream_ip" --port 1190 --bitrate 750000 --data-ip "$data_ip" --broadcast cfg/obj.data cfg/tiny-yolo-obj.cfg backup/tiny-yolo-obj.backup
