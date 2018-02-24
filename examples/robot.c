@@ -32,6 +32,8 @@ int iframe_ms = 2500;
 int stream_width = 432;
 int stream_height = 240;
 char *stream_fps = "30/1";
+char *data_log_fn = NULL;
+FILE *data_log_fp = NULL;
 float thresh = .24; /* Threshold to be exceeded to be considered worth reporting */
 
 /* Synchronized access to image feed */
@@ -65,6 +67,7 @@ void parse_options(int argc, char **argv) {
         {"stream-width",  required_argument, NULL, 's'},
         {"stream-height", required_argument, NULL, 'S'},
         {"stream-fps",    required_argument, NULL, 'F'},
+        {"data-log",      required_argument, NULL, 'l'},
         {"replay",        no_argument,       NULL, 'R'},
         {"broadcast",     no_argument,       NULL, 'B'},
         {NULL, 0, NULL, 0}
@@ -72,7 +75,7 @@ void parse_options(int argc, char **argv) {
 
     int long_index = 0;
     int opt;
-    while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:I:J:p:P:f:V:c:b:s:S:F:RB", long_opts, &long_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:I:J:p:P:f:V:c:b:s:S:F:l:RB", long_opts, &long_index)) != -1) {
         switch (opt) {
             case 'i': opt_gpu = atoi(optarg); break;
             case 't': thresh = atof(optarg); break;
@@ -89,6 +92,7 @@ void parse_options(int argc, char **argv) {
             case 's': stream_width = atoi(optarg); break;
             case 'S': stream_height = atoi(optarg); break;
             case 'F': stream_fps = optarg; break;
+            case 'l': data_log_fn = optarg; break;
             case 'R': opt_replay = 1; break;
             case 'B': opt_broadcast = 1; break;
             default:
@@ -149,6 +153,7 @@ void ip_network_init(void) {
 void notify_objects(object_location *objects, int frame) {
     datagram data = { 0 };
     struct timeval tv;
+    uint64_t timestamp;
     int rv;
     
     rv = gettimeofday(&tv, NULL);
@@ -159,7 +164,8 @@ void notify_objects(object_location *objects, int frame) {
 
     data.magic = htobe32(MAYHEM_MAGIC);
     data.frame_number = htobe32(frame);
-    data.timestamp = htobe64(tv.tv_sec * 1000000ULL + tv.tv_usec);
+    timestamp = htobe64(tv.tv_sec * 1000000ULL + tv.tv_usec);
+    data.timestamp = htobe64(timestamp);
 
     for (int i = 0; i < MAX_OBJECTS_PER_FRAME; i++) {
         /* Quit early if no more objects */
@@ -167,17 +173,28 @@ void notify_objects(object_location *objects, int frame) {
             break;
 
         data.object_data[i].type = htobe32(objects[i].type);
-        data.object_data[i].x = htobe32(objects[i].x * UINT32_MAX);
-        data.object_data[i].y = htobe32(objects[i].y * UINT32_MAX);
-        data.object_data[i].width = htobe32(objects[i].width * UINT32_MAX);
-        data.object_data[i].height = htobe32(objects[i].height * UINT32_MAX);
-        data.object_data[i].probability = htobe32(objects[i].probability * UINT32_MAX);
+        data.object_data[i].x = htobe32(objects[i].x * INT32_MAX);
+        data.object_data[i].y = htobe32(objects[i].y * INT32_MAX);
+        data.object_data[i].width = htobe32(objects[i].width * INT32_MAX);
+        data.object_data[i].height = htobe32(objects[i].height * INT32_MAX);
+        data.object_data[i].probability = htobe32(objects[i].probability * INT32_MAX);
+
+        if (data_log_fp != NULL)
+            fprintf(data_log_fp, "%d,%llu,%d,%.4f,%.4f,%.4f,%.4f,%.4f\n", frame, timestamp, objects[i].type, objects[i].x, objects[i].y, objects[i].width, objects[i].height, objects[i].probability);
     }
+
+    /* Output at least one line to record that no object were detected */
+    if (i == 0 && data_log_fp != NULL)
+        fprintf(data_log_fp, "%u,%llu,%d,%.4f,%.4f,%.4f,%.4f,%.4f\n", frame, timestamp, OBJ_NONE, 0, 0, 0, 0, 0);
 
     /* Broadcast notification of objects */
     rv = sendto(sock, &data, sizeof(data), 0, (struct sockaddr *)&svr_addr, sizeof(svr_addr));
     if (rv < 0)
         fprintf(stderr, "WARNING: Failed to send notification about objects in frame #%u\n", data.frame_number);
+
+    /* Ensure data is flushed to file */
+    if (data_log_fp != NULL)
+        fflush(data_log_fp);
 }
 
 /* Detected objects in frames as they are found */
@@ -317,6 +334,15 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
+    /* Open data log, if applicable */
+    if (data_log_fn != NULL) {
+        data_log_fp = fopen(data_log_fn, "w");
+        if (data_log_fp == NULL) {
+            fprintf(stderr, "Unable to open data log (%s) for writing\n", data_log_fn);
+            exit(1);
+        }
+    }
+
     /* Build up GStreamer pipepline */
     char gstreamer_cmd[1024] = { '\0' };
     if (opt_replay) {
@@ -362,6 +388,8 @@ int main(int argc, char **argv) {
     printf("Waiting for termination...\n");
     pthread_join(detect_thread, 0);
     cvReleaseCapture(&cap);
+    if (data_log_fp != NULL)
+        fclose(data_log_fp);
 
     return 0;
 }

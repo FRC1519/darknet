@@ -94,7 +94,7 @@ $(OI_EXEC): $(OI_OBJS)
 	$(CC) $(COMMON) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 $(OL_JAR): $(OL_OBJS)
-	jar cvfe $@ org.mayheminc.ObjectListener $(addprefix -C $(OBJDIR) $(JAVA_DIR)/,$(OL_OBJ))
+	jar cvfe $@ org.mayheminc.ObjectListener $(patsubst $(OBJDIR)/%,-C '$(OBJDIR)' '%',$(wildcard $(addprefix $(OBJDIR)/$(JAVA_DIR)/,$(patsubst %.class,%*.class,$(OL_OBJ)))))
 
 $(ALIB): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
@@ -102,6 +102,7 @@ $(ALIB): $(OBJS)
 $(SLIB): $(OBJS)
 	$(CC) $(CFLAGS) -shared $^ -o $@ $(LDFLAGS)
 
+$(OBJDIR)ObjectListener.class: $(OBJDIR)ObjectLocation.class
 $(OBJDIR)%.class: $(JAVA_DIR)/%.java
 	javac -verbose -d "$(OBJDIR)" -cp "$(OBJDIR)" -Werror $<
 
