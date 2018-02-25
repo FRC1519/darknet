@@ -1,21 +1,38 @@
 #!/bin/bash
 
-declare -r bin=$(readlink -f "$(dirname "${BASE_SOURCE[0]}")")
-declare -r share=$(readlink -f "$bin/../share/robot")
+# Set directories
+declare -r bin=$(readlink -m "$(dirname "${BASH_SOURCE[0]}")")
+declare -r share=$(readlink -m "$bin/../share/robot")
 declare -r var="/var/local/robot"
 
+# Set video configuration
 declare -r threshold="0.15"
 declare -r bitrate=750000
 declare -r cap_fps="15/1"
 declare -r stream_fps="15/1"
-declare -r oi_ip="10.15.19.5"
-declare -r robot_ip="10.15.19.2"
-declare -r -a cfg_files="$share/obj.data $share/tiny-yolo-obj.cfg $share/tiny-yolo-obj.backup"
+
+# Determine IP addresses to use
+declare oi_ip
+declare robot_ip
+if ip address show dev eth0 | grep -q 'inet 192.168.0'; then
+    # Development environment
+    oi_ip="192.168.0.51"
+    robot_ip=$oi_ip
+else
+    # Field environment
+    oi_ip="10.15.19.5"
+    robot_ip="10.15.19.2"
+fi
+
+# Set file locations
+declare -r -a cfg_files=("$share/obj.data" "$share/tiny-yolo-obj.cfg" "$share/tiny-yolo-obj.backup")
 declare -r timestamp=$(date --iso-8601=seconds)
 declare -r video="$var/capture-$timestamp.avi"
-declare -r datalog="$var/datalog-$tmpstamp.cvs"
+declare -r datalog="$var/datalog-$timestamp.cvs"
 
-# TODO update from latest AI network
-
+# Enable core dump collection
 ulimit -c unlimited
-"$bin"/robot --thresh "$threshold" --fps "$cap_fps" --stream-fps "$stream_fps" --bitrate "$bitrate" --ip "$oi_ip" --data-ip "$robot_ip" --video "$video" --data-log "$datalog" "$cfg_files[@]}"
+
+# Run robot vision program
+cd "$share"
+"$bin"/robot --thresh "$threshold" --fps "$cap_fps" --stream-fps "$stream_fps" --bitrate "$bitrate" --ip "$oi_ip" --data-ip "$robot_ip" --video "$video" --data-log "$datalog" "${cfg_files[@]}"
