@@ -53,6 +53,6 @@ public class ObjectLocation {
     public String toString() {
         DecimalFormat df = new DecimalFormat("0.00");
 
-        return type.name() + "@" + df.format(x) + "x" + df.format(y) + "+" + df.format(width) + "x" + df.format(height) + "[" + df.format(probability) * 100 + "%]";
+        return type.name() + "@" + df.format(x) + "x" + df.format(y) + "+" + df.format(width) + "x" + df.format(height) + "[" + df.format(probability * 100) + "%]";
     }
 }

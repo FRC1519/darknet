@@ -60,7 +60,7 @@ int main(int argc, char **argv) {
             continue;
         }
 
-        printf("Received frame %" PRIu32 " sent at %" PRIu64 "\n", be32toh(data.frame_number), be32toh(data.timestamp));
+        printf("Received frame %" PRIu32 " sent at %" PRIu64 "\n", be32toh(data.frame_number), be64toh(data.timestamp));
         for (int i = 0; i < MAX_OBJECTS_PER_FRAME; i++) {
             obj_loc.type = be32toh(data.object_data[i].type);
             if (obj_loc.type == OBJ_NONE)

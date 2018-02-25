@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <getopt.h>
 #include <pthread.h>
+#include <inttypes.h>
 #include <assert.h>
 #include <sys/time.h>
 #include <endian.h>
@@ -155,6 +156,7 @@ void notify_objects(object_location *objects, int frame) {
     struct timeval tv;
     uint64_t timestamp;
     int rv;
+    int i;
     
     rv = gettimeofday(&tv, NULL);
     if (rv < 0) {
@@ -167,7 +169,7 @@ void notify_objects(object_location *objects, int frame) {
     timestamp = htobe64(tv.tv_sec * 1000000ULL + tv.tv_usec);
     data.timestamp = htobe64(timestamp);
 
-    for (int i = 0; i < MAX_OBJECTS_PER_FRAME; i++) {
+    for (i = 0; i < MAX_OBJECTS_PER_FRAME; i++) {
         /* Quit early if no more objects */
         if (objects[i].type == OBJ_NONE)
             break;
@@ -180,12 +182,12 @@ void notify_objects(object_location *objects, int frame) {
         data.object_data[i].probability = htobe32(objects[i].probability * INT32_MAX);
 
         if (data_log_fp != NULL)
-            fprintf(data_log_fp, "%d,%llu,%d,%.4f,%.4f,%.4f,%.4f,%.4f\n", frame, timestamp, objects[i].type, objects[i].x, objects[i].y, objects[i].width, objects[i].height, objects[i].probability);
+            fprintf(data_log_fp, "%d,%" PRIu64 ",%d,%.4f,%.4f,%.4f,%.4f,%.4f\n", frame, timestamp, objects[i].type, objects[i].x, objects[i].y, objects[i].width, objects[i].height, objects[i].probability);
     }
 
     /* Output at least one line to record that no object were detected */
     if (i == 0 && data_log_fp != NULL)
-        fprintf(data_log_fp, "%u,%llu,%d,%.4f,%.4f,%.4f,%.4f,%.4f\n", frame, timestamp, OBJ_NONE, 0, 0, 0, 0, 0);
+        fprintf(data_log_fp, "%u,%" PRIu64 ",%d,%.4f,%.4f,%.4f,%.4f,%.4f\n", frame, timestamp, OBJ_NONE, 0.0, 0.0, 0.0, 0.0, 0.0);
 
     /* Broadcast notification of objects */
     rv = sendto(sock, &data, sizeof(data), 0, (struct sockaddr *)&svr_addr, sizeof(svr_addr));
