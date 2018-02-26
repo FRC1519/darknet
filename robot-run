@@ -35,4 +35,4 @@ ulimit -c unlimited
 
 # Run robot vision program
 cd "$share"
-"$bin"/robot --thresh "$threshold" --fps "$cap_fps" --stream-fps "$stream_fps" --bitrate "$bitrate" --ip "$oi_ip" --data-ip "$robot_ip" --video "$video" --data-log "$datalog" "${cfg_files[@]}"
+"$bin"/robot --thresh "$threshold" --fps "$cap_fps" --stream-fps "$stream_fps" --bitrate "$bitrate" --oper-ip "$oi_ip" --robot-ip "$robot_ip" --video "$video" --data-log "$datalog" "${cfg_files[@]}"

@@ -19,11 +19,11 @@
 int opt_gpu = -1;
 int opt_replay = 0;
 int opt_broadcast = 0;
-int camera_port = 0;
-char *stream_dest_host = "10.15.19.5";
-int stream_dest_port = 1190;
-char *data_host = "10.15.19.255";
-int data_host_port = 5810;
+int camera_dev = 0;
+char *robot_host = "10.15.19.5";
+char *oper_host = "10.15.19.2";
+int video_port = 1190;
+int data_port = 5810;
 int cap_width = 640;
 int cap_height = 480;
 char *cap_fps = "30/1";
@@ -35,7 +35,7 @@ int stream_height = 240;
 char *stream_fps = "30/1";
 char *data_log_fn = NULL;
 FILE *data_log_fp = NULL;
-float thresh = .24; /* Threshold to be exceeded to be considered worth reporting */
+float thresh = .14; /* Threshold to be exceeded to be considered worth reporting */
 
 /* Synchronized access to image feed */
 void *next_image_data = NULL;
@@ -47,7 +47,7 @@ pthread_cond_t image_cv = PTHREAD_COND_INITIALIZER;
 int done = 0;
 
 /* Globals used for IP network broadcasts */
-struct sockaddr_in svr_addr;
+struct sockaddr_in robot_addr, oper_addr;
 int sock;
 
 /* Command line options */
@@ -57,9 +57,9 @@ void parse_options(int argc, char **argv) {
         {"thresh",        required_argument, NULL, 't'},
         {"width",         required_argument, NULL, 'W'},
         {"height",        required_argument, NULL, 'H'},
-        {"ip",            required_argument, NULL, 'I'},
-        {"data-ip",       required_argument, NULL, 'J'},
-        {"port",          required_argument, NULL, 'p'},
+        {"robot-ip",      required_argument, NULL, 'r'},
+        {"oper-ip",       required_argument, NULL, 'o'},
+        {"video-port",    required_argument, NULL, 'p'},
         {"data-port",     required_argument, NULL, 'P'},
         {"fps",           required_argument, NULL, 'f'},
         {"video",         required_argument, NULL, 'V'},
@@ -76,19 +76,19 @@ void parse_options(int argc, char **argv) {
 
     int long_index = 0;
     int opt;
-    while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:I:J:p:P:f:V:c:b:s:S:F:l:RB", long_opts, &long_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:r:o:p:P:f:V:c:b:s:S:F:l:RB", long_opts, &long_index)) != -1) {
         switch (opt) {
             case 'i': opt_gpu = atoi(optarg); break;
             case 't': thresh = atof(optarg); break;
             case 'W': cap_width = atoi(optarg); break;
             case 'H': cap_height = atoi(optarg); break;
-            case 'I': stream_dest_host = optarg; break;
-            case 'J': data_host = optarg; break;
-            case 'p': stream_dest_port = atoi(optarg); break;
-            case 'P': data_host_port = atoi(optarg); break;
+            case 'r': robot_host = optarg; break;
+            case 'o': oper_host = optarg; break;
+            case 'p': video_port = atoi(optarg); break;
+            case 'P': data_port = atoi(optarg); break;
             case 'f': cap_fps = optarg; break;
             case 'V': video_filename = optarg; break;
-            case 'c': camera_port = atoi(optarg); break;
+            case 'c': camera_dev = atoi(optarg); break;
             case 'b': bitrate = atoi(optarg); break;
             case 's': stream_width = atoi(optarg); break;
             case 'S': stream_height = atoi(optarg); break;
@@ -103,36 +103,35 @@ void parse_options(int argc, char **argv) {
     }
 }
 
-/* Initialize the IP network */
-void ip_network_init(void) {
-    struct hostent *svr_host;
-    int rv;
+void host_to_addr(char *host, struct sockaddr_in *sin) {
+    struct hostent *hent;
 
-    /* Look up the server IP address */
-    svr_host = gethostbyname(data_host);
-    if (svr_host == NULL) {
-        fprintf(stderr, "Unknown data host (%s)\n", data_host);
+    /* Look up the IP address */
+    hent = gethostbyname(host);
+    if (hent == NULL) {
+        fprintf(stderr, "Unknown host \"%s\"\n", host);
         exit(1);
     }
     
-    /* Initialize server address */
-    svr_addr.sin_family = svr_host->h_addrtype;
-    memcpy(&svr_addr.sin_addr.s_addr, svr_host->h_addr_list[0], svr_host->h_length);
-    svr_addr.sin_port = htons(data_host_port);
+    /* Initialize address */
+    sin->sin_family = hent->h_addrtype;
+    memcpy(&sin->sin_addr.s_addr, hent->h_addr_list[0], hent->h_length);
+    sin->sin_port = htons(data_port);
+}
+
+/* Initialize the IP network */
+void ip_network_init(void) {
+    int rv;
+
+    /* Convert host names to addresses */
+    host_to_addr(robot_host, &robot_addr);
+    host_to_addr(oper_host, &oper_addr);
 
     /* Create datagram socket for communication */
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) {
         fprintf(stderr, "Failed to open socket\n");
         exit(1);
-    }
-
-    /* Configure the socket for broadcasting */
-    if (opt_broadcast) {
-        if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &opt_broadcast, sizeof(opt_broadcast)) == -1) {
-            perror("Failed to configure socket for broadcasting");
-            exit(1);
-        }
     }
 
     /* Set up the local address flexibly */
@@ -189,10 +188,15 @@ void notify_objects(object_location *objects, int frame) {
     if (i == 0 && data_log_fp != NULL)
         fprintf(data_log_fp, "%u,%" PRIu64 ",%d,%.4f,%.4f,%.4f,%.4f,%.4f\n", frame, timestamp, OBJ_NONE, 0.0, 0.0, 0.0, 0.0, 0.0);
 
-    /* Broadcast notification of objects */
-    rv = sendto(sock, &data, sizeof(data), 0, (struct sockaddr *)&svr_addr, sizeof(svr_addr));
+    /* Send notification of objects to robot */
+    rv = sendto(sock, &data, sizeof(data), 0, (struct sockaddr *)&robot_addr, sizeof(robot_addr));
     if (rv < 0)
-        fprintf(stderr, "WARNING: Failed to send notification about objects in frame #%u\n", data.frame_number);
+        fprintf(stderr, "WARNING: Failed to send notification about objects in frame #%u to robot\n", frame);
+
+    /* Send notification of objects to operator */
+    rv = sendto(sock, &data, sizeof(data), 0, (struct sockaddr *)&oper_addr, sizeof(oper_addr));
+    if (rv < 0)
+        fprintf(stderr, "WARNING: Failed to send notification about objects in frame #%u to operator\n", frame);
 
     /* Ensure data is flushed to file */
     if (data_log_fp != NULL)
@@ -351,11 +355,11 @@ int main(int argc, char **argv) {
         char *ext = strrchr(video_filename, '.');
 
         if (ext != NULL && strcmp(ext, ".jpg") == 0)
-            snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "multifilesrc location=%s caps=\"image/jpeg, framerate=%s\" ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, cap_fps, stream_dest_host, stream_dest_port);
+            snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "multifilesrc location=%s caps=\"image/jpeg, framerate=%s\" ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, cap_fps, oper_host, video_port);
         else
-            snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "filesrc location=%s ! avidemux ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, stream_dest_host, stream_dest_port);
+            snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "filesrc location=%s ! avidemux ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, oper_host, video_port);
     } else {
-        snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "uvch264src dev=/dev/video%d entropy=cabac post-previews=false rate-control=vbr initial-bitrate=%d peak-bitrate=%d average-bitrate=%d iframe-period=%d auto-start=true name=src src.vfsrc ! queue ! tee name=t ! queue ! image/jpeg, width=%d, height=%d, framerate=%s ! avimux ! filesink location=%s t. ! jpegdec ! videoconvert ! appsink src.vidsrc ! queue ! video/x-h264, width=%d, height=%d, framerate=%s, profile=high, stream-format=byte-stream ! h264parse ! video/x-h264, stream-format=avc ! rtph264pay ! udpsink host=%s port=%d", camera_port, bitrate, bitrate, bitrate, iframe_ms, cap_width, cap_height, cap_fps, video_filename, stream_width, stream_height, stream_fps, stream_dest_host, stream_dest_port);
+        snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "uvch264src dev=/dev/video%d entropy=cabac post-previews=false rate-control=vbr initial-bitrate=%d peak-bitrate=%d average-bitrate=%d iframe-period=%d auto-start=true name=src src.vfsrc ! queue ! tee name=t ! queue ! image/jpeg, width=%d, height=%d, framerate=%s ! avimux ! filesink location=%s t. ! jpegdec ! videoconvert ! appsink src.vidsrc ! queue ! video/x-h264, width=%d, height=%d, framerate=%s, profile=high, stream-format=byte-stream ! h264parse ! video/x-h264, stream-format=avc ! rtph264pay ! udpsink host=%s port=%d", camera_dev, bitrate, bitrate, bitrate, iframe_ms, cap_width, cap_height, cap_fps, video_filename, stream_width, stream_height, stream_fps, oper_host, video_port);
     }
 
     /* Use GStreamer to acquire video feed */
