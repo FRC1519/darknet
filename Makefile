@@ -127,5 +127,5 @@ clean:
 install: $(ROBOT_EXEC) $(ROBOT_RUN) $(CFG_FILES)
 	install -m 0755 -t /usr/local/bin $(ROBOT_EXEC) $(OI_EXEC) $(ROBOT_RUN)
 	install -m 0755 -d /usr/local/share/robot
-	install -m 0644 -t /usr/local/share/robot $(CFG_FILES)
+	install -m 0644 -t /usr/local/share/robot $(CFG_FILES) $(OL_JAR)
 	install -m 0755 -d /var/local/robot
