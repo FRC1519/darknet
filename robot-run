@@ -7,6 +7,7 @@ declare -r bin=$(readlink -m "$(dirname "${BASH_SOURCE[0]}")")
 declare -r share=$(readlink -m "$bin/../share/robot")
 declare -r sddata="/media/nvidia/test/trainingdata"
 declare var="/var/local/robot"
+declare -r coredir=$var
 [[ -d $sddata ]] && var=$sddata
 
 # Set video configuration
@@ -86,8 +87,9 @@ pgrep -x robot &>/dev/null && echo "Killing previous instance..." && pkill -x -K
 pgrep netlog &>/dev/null && pkill netlog && sleep 2
 "$bin"/netlog "$netdev" "$netlog" &
 
-# Enable core dump collection
+# We want core dumps! (if we crash)
 ulimit -c unlimited
+echo "$coredir/core_%e.%p.%s" > /proc/sys/kernel/core_pattern
 
 # Run robot vision program
 cd "$share"
