@@ -19,6 +19,12 @@ declare -r stream_height="240"
 declare -r iframe="1000" # in ms
 declare -r -i cap_avg_frame=81 # in KB, for space computation
 
+# Ensure root access
+if [[ $(id -u) != 0 ]]; then
+    echo "Running as root is required" >&2
+    exit 1
+fi
+
 # Determine IP addresses to use
 declare -r netdev="eth0"
 declare oi_ip
