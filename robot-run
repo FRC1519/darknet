@@ -41,13 +41,21 @@ else
 fi
 
 # Detect which camera is where
-declare cam1=(/sys/devices/3530000.xhci/usb1/1-2/1-2:1.0/video4linux/video*)
+declare cam1 cam2
+if [[ -e /sys/devices/3530000.xhci/usb1/1-2/1-2\:1.0/ ]]; then
+    echo "USB hub detected"
+    cam1=(/sys/devices/3530000.xhci/usb1/1-2/1-2.4/1-2.4:1.0/video4linux/video*)
+    cam2=(/sys/devices/3530000.xhci/usb1/1-2/1-2.1/1-2.1:1.0/video4linux/video*)
+else
+    echo "No USB hub detected"
+    cam1=(/sys/devices/3530000.xhci/usb1/1-2/1-2:1.0/video4linux/video*)
+    cam2=(/sys/devices/3530000.xhci/usb1/1-1/1-1:1.0/video4linux/video*)
+fi
 cam1=${cam1##*/video}
 if [[ $cam1 == "*" ]]; then
     echo "Failed to find primary camera"
     exit 1
 fi
-declare cam2=(/sys/devices/3530000.xhci/usb1/1-1/1-1:1.0/video4linux/video*)
 cam2=${cam2##*/video}
 if [[ $cam2 == "*" ]]; then
     echo "Failed to find secondary camera"
