@@ -78,8 +78,12 @@ if [[ $free_space -lt $min_space ]]; then
     exit 1
 fi
 
+# Ensure that any previous instances have exited
+pgrep -x robot &>/dev/null && echo "Stopping previous instance..." && pkill robot && sleep 2
+pgrep -x robot &>/dev/null && echo "Killing previous instance..." && pkill -KILL robot && sleep 4
+
 # Start the network logger
-pgrep &>/dev/null netlog && pkill netlog && sleep 2
+pgrep netlog &>/dev/null && pkill netlog && sleep 2
 "$bin"/netlog "$netdev" "$netlog" &
 
 # Enable core dump collection
