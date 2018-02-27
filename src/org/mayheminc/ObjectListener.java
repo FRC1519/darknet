@@ -16,6 +16,7 @@ public class ObjectListener extends Thread {
     private DatagramPacket packet;
     private ByteBuffer buffer;
     private int lastFrame = 0;
+    private long lastTimestamp = 0;
     private ArrayList<ObjectLocation> objList;
     private Callback callback = null;
 
@@ -35,11 +36,15 @@ public class ObjectListener extends Thread {
         byte[] byteBuffer = new byte[MAX_BUFFER];
         packet = new DatagramPacket(byteBuffer, byteBuffer.length);
         buffer = ByteBuffer.wrap(byteBuffer);
-        objList = new ArrayList<ObjectListener>();
+        objList = new ArrayList<ObjectLocation>();
     }
 
     public int getLastFrame() {
         return lastFrame;
+    }
+
+    public long getLastTimestamp() {
+        return lastTimestamp;
     }
 
     public List getObjectList() {
@@ -119,6 +124,7 @@ public class ObjectListener extends Thread {
         socket.close();
     }
 
+/* Callback implementation
     // Sample implementation for testing and demonstration purposes
     public static void main(String[] args) {
         ObjectListener listener;
@@ -152,6 +158,52 @@ public class ObjectListener extends Thread {
                 Thread.sleep(600);
             } catch (InterruptedException e) {
                 break;
+            }
+        }
+    }
+*/
+
+/* Polling implementation */
+    public static void main(String[] args) {
+        ObjectListener listener;
+        long lastTimestamp = 0;
+        long nextTimestamp;
+
+        // Create the listener
+        try {
+            listener = new ObjectListener();
+        } catch (SocketException e) {
+            e.printStackTrace();
+            return;
+        }
+
+        // Begin listening
+        System.out.println("Starting object listener...\n");
+        listener.start();
+
+        // Run forever
+        while (true) {
+            // Wait for 100 ms for a new frame
+            try {
+                Thread.sleep(0, 100);
+            } catch (InterruptedException e) {
+                break;
+            }
+
+            // Check for a new frame
+            nextTimestamp = listener.getLastTimestamp();
+            if (nextTimestamp <= lastTimestamp) {
+                continue;
+            }
+            lastTimestamp = nextTimestamp;
+
+            // Get current data
+            int frame = listener.getLastFrame();
+            List<ObjectLocation> objList = listener.getObjectList();
+
+            System.out.println("Received notification about objects in frame #" + frame);
+            for (ObjectLocation loc: objList) {
+                System.out.println("  " + loc);
             }
         }
     }
