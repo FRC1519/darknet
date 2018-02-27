@@ -165,7 +165,7 @@ void notify_objects(object_location *objects, int frame) {
 
     data.magic = htobe32(MAYHEM_MAGIC);
     data.frame_number = htobe32(frame);
-    timestamp = htobe64(tv.tv_sec * 1000000ULL + tv.tv_usec);
+    timestamp = tv.tv_sec * 1000000ULL + tv.tv_usec;
     data.timestamp = htobe64(timestamp);
 
     for (i = 0; i < MAX_OBJECTS_PER_FRAME; i++) {
