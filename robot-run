@@ -45,7 +45,7 @@ declare cam1 cam2
 if [[ -e /sys/devices/3530000.xhci/usb1/1-2/1-2\:1.0/ ]]; then
     echo "USB hub detected"
     cam1=(/sys/devices/3530000.xhci/usb1/1-2/1-2.4/1-2.4:1.0/video4linux/video*)
-    cam2=(/sys/devices/3530000.xhci/usb1/1-2/1-2.1/1-2.1:1.0/video4linux/video*)
+    cam2=(/sys/devices/3530000.xhci/usb1/1-2/1-2.3/1-2.3:1.0/video4linux/video*)
 else
     echo "No USB hub detected"
     cam1=(/sys/devices/3530000.xhci/usb1/1-2/1-2:1.0/video4linux/video*)
