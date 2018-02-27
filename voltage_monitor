@@ -1,0 +1,2 @@
+#!/bin/bash
+while :; do echo "$(date): $(</sys/devices/3160000.i2c/i2c-0/0-0040/iio_device/in_voltage0_input)"; sleep 0.1; done
