@@ -65,6 +65,7 @@ if [[ $free_space -lt $min_space ]]; then
 fi
 
 # Start the network logger
+pgrep netlog && pkill netlog && sleep 2
 "$bin"/netlog "$netdev" "$netlog" &
 
 # Enable core dump collection
