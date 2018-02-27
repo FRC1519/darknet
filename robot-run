@@ -44,7 +44,7 @@ fi
 declare cam2=(/sys/devices/3530000.xhci/usb1/1-1/1-1:1.0/video4linux/video*)
 cam2=${cam2##*/video}
 if [[ $cam2 == "*" ]]; then
-    echo "Failed to find primary camera"
+    echo "Failed to find secondary camera"
     exit 1
 fi
 
