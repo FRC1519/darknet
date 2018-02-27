@@ -219,41 +219,49 @@ void notify_objects(object_location *objects, int frame) {
         fflush(data_log_fp);
 }
 
-/* Set the active camera */
-void change_camera(int camera) {
+/*
+ * NOTE: There is no good interface to iptables.  There's libiptc, but it's
+ * not stable.  It's also very low level.  Therefore, just use system().
+ * It's fast enough.
+ */
+
+/* Reset iptables configuration */
+void iptables_reset() {
     char cmd[255];
     int rv;
 
+    /* Reset OUTPUT table rules */
+    rv = system("/sbin/iptables -F OUTPUT");
+    if (rv != 0) {
+        fprintf(stderr, "ERROR: Failed reset iptables\n");
+        exit(1);
+    }
+
+    /* Add a rule to start */
+    snprintf(cmd, sizeof(cmd), "/sbin/iptables -A OUTPUT -p udp --sport %d -j DROP", cam2_port);
+    rv = system(cmd);
+    if (rv != 0)
+        fprintf(stderr, "WARNING: Failed to block traffic from port %d\n", cam2_port);
+}
+
+/* Set the port to the blocked */
+void iptables_switch(int port) {
+    char cmd[255];
+    int rv;
+
+    snprintf(cmd, sizeof(cmd), "/sbin/iptables -R OUTPUT 1 -p udp --sport %d -j DROP", port);
+    rv = system(cmd);
+    if (rv != 0)
+        fprintf(stderr, "WARNING: Failed to block traffic from port %d\n", port);
+}
+
+/* Set the active camera */
+void change_camera(int camera) {
     /* Switch source of frames */
     active_cam = camera == 1 ? 1 : 0;
 
-    /* Determine the port to block and the port to allow */
-    int good_port, bad_port;
-    if (active_cam == 0) {
-        good_port = cam_port;
-        bad_port = cam2_port;
-    } else {
-        good_port = cam2_port;
-        bad_port = cam_port;
-    }
-
-    /*
-     * NOTE: There is no good interface to iptables.  There's libiptc, but it's
-     * not stable.  It's also very low level.  Therefore, just use system().
-     * It's fast enough.
-     */
-
-    /* First, stop the camera stream that's not active */
-    snprintf(cmd, sizeof(cmd), "/sbin/iptables -A OUTPUT -p udp --sport %d -j DROP", bad_port);
-    rv = system(cmd);
-    if (rv == 0)
-        fprintf(stderr, "WARNING: Failed to limit traffic from port %d\n", bad_port);
-
-    /* Second, allow the camera stream that's now active */
-    snprintf(cmd, sizeof(cmd), "/sbin/iptables -D OUTPUT -p udp --sport %d -j DROP", good_port);
-    rv = system(cmd);
-    if (rv == 0)
-        fprintf(stderr, "WARNING: Failed to limit traffic from port %d\n", bad_port);
+    /* Block the port not in use */
+    iptables_switch(active_cam == 0 ? cam2_port : cam_port);
 }
 
 /* Monitor Network Tables for changes to the active camera */
@@ -269,7 +277,7 @@ void *camera_monitor(void *ptr) {
     NT_StartClient(inst, robot_host, NT_DEFAULT_PORT);
     while (!NT_IsConnected(inst)) {
         printf("Waiting to connect to robot network tables server...\n");
-        sleep(5);
+        sleep(2);
     }
     printf("Connected to robot network tables server\n");
 
@@ -404,6 +412,7 @@ void *detect_thread_impl(void *ptr) {
 
 /* Fetch all frames from OpenCV */
 void fetch_frames(CvCapture *cap1, CvCapture *cap2) {
+    int mycam = 0;
     int frame = 0;
     int rv;
     IplImage *image;
@@ -412,10 +421,11 @@ void fetch_frames(CvCapture *cap1, CvCapture *cap2) {
     CvCapture *cap;
 
     while (!done) {
-        printf("Acquiring frame #%d\n", ++frame);
+        mycam = active_cam;
+        printf("Acquiring frame #%d from %s camera\n", ++frame, (mycam == 0) ? "primary" : "secondary");
 
         /* Select the active capture device */
-        cap = active_cam == 0 ? cap1 : cap2;
+        cap = mycam == 0 ? cap1 : cap2;
 
         /* This blocks until a frame is available, or EOS */
         image = cvQueryFrame(cap);
@@ -490,6 +500,7 @@ int main(int argc, char **argv) {
     }
 
     /* Default to the primary camera -- *before* we start streaming */
+    iptables_reset();
     if (camera2_dev >= 0)
         change_camera(active_cam);
 
