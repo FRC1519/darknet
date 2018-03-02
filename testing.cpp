@@ -31,8 +31,8 @@ long obj_timestamp = 0;
 object_location obj_loc[MAX_OBJECTS_PER_FRAME];
 
 float minThreshold = 0.15; // Minimum probability to draw
-float maxThreshold = 0.75; // Probability above which we consider object basically certain
-float dimmingRange = 0.3; // Amount of color that is subject to dimming
+float maxThreshold = 0.6; // Probability above which we consider object basically certain
+float dimmingRange = 0.5; // Amount of color that is subject to dimming
 
 Rect ourRect(float x, float y, float w, float h, Size size) {
     float left = (x - w / 2.) * size.width;
