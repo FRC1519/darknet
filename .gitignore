@@ -21,6 +21,9 @@ robot
 libdarknet.a
 libdarknet.so
 oitest
+simpletest
+simpletestcpp
+testing
 *.jar
 *.class
 .fuse*
