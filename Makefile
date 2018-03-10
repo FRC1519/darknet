@@ -65,7 +65,7 @@ OBJ+=convolutional_kernels.o deconvolutional_kernels.o activation_kernels.o im2c
 endif
 ROBOT_OBJ=robot.o libdarknet.o
 ROBOT_EXEC=robot
-ROBOT_RUN=robot-run
+SCRIPTS=robot-run netlog
 OI_OBJ=oitest.o
 OI_EXEC=oitest
 OL_OBJ=ObjectListener.class ObjectLocation.class
@@ -124,8 +124,8 @@ results:
 clean:
 	rm -rf $(OBJS) $(SLIB) $(ALIB) $(EXEC) $(EXECOBJ)
 
-install: $(ROBOT_EXEC) $(ROBOT_RUN) $(CFG_FILES)
-	install -m 0755 -t /usr/local/bin $(ROBOT_EXEC) $(OI_EXEC) $(ROBOT_RUN)
+install: $(ROBOT_EXEC) $(SCRIPTS) $(CFG_FILES)
+	install -m 0755 -t /usr/local/bin $(ROBOT_EXEC) $(OI_EXEC) $(SCRIPTS)
 	install -m 0755 -d /usr/local/share/robot
 	install -m 0644 -t /usr/local/share/robot $(CFG_FILES) $(OL_JAR)
 	install -m 0755 -d /var/local/robot

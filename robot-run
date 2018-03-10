@@ -14,9 +14,10 @@ declare -r stream_width="432"
 declare -r stream_height="240"
 
 # Determine IP addresses to use
+declare -r netdev="eth0"
 declare oi_ip
 declare robot_ip
-if ip address show dev eth0 | grep -q 'inet 192.168.0'; then
+if ip address show dev "$netdev" | grep -q 'inet 192.168.0'; then
     # Development environment
     oi_ip="192.168.0.51"
     #oi_ip="192.168.0.56"
@@ -32,6 +33,10 @@ declare -r -a cfg_files=("$share/obj.data" "$share/tiny-yolo-obj.cfg" "$share/ti
 declare -r timestamp=$(date --iso-8601=seconds)
 declare -r video="$var/capture-$timestamp.avi"
 declare -r datalog="$var/datalog-$timestamp.csv"
+declare -r netlog="$var/network-$timestamp.csv"
+
+# Start the network logger
+"$bin"/netlog "$netdev" "$netlog" &
 
 # Enable core dump collection
 ulimit -c unlimited

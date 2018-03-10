@@ -1,0 +1,16 @@
+#!/bin/bash
+declare -r -i interval=5
+declare -r dev=$1
+declare -r log=$2
+declare -r statdir="/sys/class/net/$dev/statistics"
+
+: >"$log"
+while :; do
+    time=$(date +%s)
+    rx_bytes=$(<$statdir/rx_bytes)
+    rx_packets=$(<$statdir/rx_packets)
+    tx_bytes=$(<$statdir/tx_bytes)
+    tx_packets=$(<$statdir/tx_packets)
+    printf '%s,%s,%s,%s,%s\n' "$time" "$rx_bytes" "$rx_packets" "$tx_bytes" "$tx_packets" >>"$log"
+    sleep "$interval"
+done
