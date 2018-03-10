@@ -12,6 +12,7 @@ declare -r bitrate=500000
 declare -r stream_fps="5/1"
 declare -r stream_width="432"
 declare -r stream_height="240"
+declare -r iframe="2500" # in ms
 
 # Determine IP addresses to use
 declare -r netdev="eth0"
@@ -43,4 +44,4 @@ ulimit -c unlimited
 
 # Run robot vision program
 cd "$share"
-"$bin"/robot --gpu 0 --thresh "$threshold" --fps "$cap_fps" --stream-width "$stream_width" --stream-height "$stream_height" --stream-fps "$stream_fps" --bitrate "$bitrate" --oper-ip "$oi_ip" --robot-ip "$robot_ip" --video "$video" --data-log "$datalog" "${cfg_files[@]}"
+"$bin"/robot --gpu 0 --thresh "$threshold" --fps "$cap_fps" --stream-width "$stream_width" --stream-height "$stream_height" --stream-fps "$stream_fps" --bitrate "$bitrate" --iframe "$iframe" --oper-ip "$oi_ip" --robot-ip "$robot_ip" --video "$video" --data-log "$datalog" "${cfg_files[@]}"

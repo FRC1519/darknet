@@ -71,12 +71,13 @@ void parse_options(int argc, char **argv) {
         {"data-log",      required_argument, NULL, 'l'},
         {"replay",        no_argument,       NULL, 'R'},
         {"broadcast",     no_argument,       NULL, 'B'},
+        {"iframe",        required_argument, NULL, 'I'},
         {NULL, 0, NULL, 0}
     };
 
     int long_index = 0;
     int opt;
-    while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:r:o:p:P:f:V:c:b:s:S:F:l:RB", long_opts, &long_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:r:o:p:P:f:V:c:b:s:S:F:l:RBI:", long_opts, &long_index)) != -1) {
         switch (opt) {
             case 'i': opt_gpu = atoi(optarg); break;
             case 't': thresh = atof(optarg); break;
@@ -96,6 +97,7 @@ void parse_options(int argc, char **argv) {
             case 'l': data_log_fn = optarg; break;
             case 'R': opt_replay = 1; break;
             case 'B': opt_broadcast = 1; break;
+            case 'I': iframe_ms = atoi(optarg); break;
             default:
                 fprintf(stderr, "Usage error\n");
                 exit(1);
