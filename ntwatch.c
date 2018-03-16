@@ -7,7 +7,8 @@
 int main(int argc, char **argv) {
     const char *myname = "Vision";
     const char *robot_host = "10.15.19.2";
-    const char *valname = "MyValue";
+    const char *valname = "/SmartDashboard/Free Memory";
+    //const char *valname = "/SmartDashboard/Cube In";
     NT_Inst inst = NT_GetDefaultInstance();
 
     NT_SetNetworkIdentity(inst, myname, strlen(myname));
@@ -18,6 +19,18 @@ int main(int argc, char **argv) {
     }
     printf("Connected\n");
 
+    printf("Getting entries\n");
+    size_t count;
+    NT_Entry *entries = NT_GetEntries(inst, "", 0, 0, &count);
+    printf("Got %zu entries\n", count);
+    printf("ENTRIES ==>\n");
+    for (size_t i = 0; i < count; i++) {
+        size_t len;
+        char *name = NT_GetEntryName(entries[i], &len);
+        printf("    %s\n", name);
+    }
+    printf("<== ENTRIES\n");
+
     NT_EntryListenerPoller poller = NT_CreateEntryListenerPoller(inst);
     NT_Entry entry = NT_GetEntry(inst, valname, strlen(valname));
     int poll_flags = NT_NOTIFY_IMMEDIATE | NT_NOTIFY_NEW | NT_NOTIFY_UPDATE;
@@ -25,7 +38,7 @@ int main(int argc, char **argv) {
     printf("Listener ready for changes to \"%s\"\n", valname);
 
     // TODO Initial check of value?
-    
+
     size_t len;
     double timeout = 5.0;
     NT_Bool timed_out;
@@ -43,6 +56,7 @@ int main(int argc, char **argv) {
             printf("Failed to get double value\n");
             continue;
         }
+        printf("Double value == %lf\n", vDouble);
         int value = (int)(vDouble + 0.5);
 
         printf("UPDATE[%" PRIu64 "]: %s ==> %d\n", timestamp, notification->name.str, value);
