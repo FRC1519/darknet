@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# TODO Determine which camera is which
+
 # Set directories
 declare -r bin=$(readlink -m "$(dirname "${BASH_SOURCE[0]}")")
 declare -r share=$(readlink -m "$bin/../share/robot")

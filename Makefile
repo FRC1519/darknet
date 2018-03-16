@@ -24,8 +24,8 @@ NVCC=/usr/local/cuda-8.0/bin/nvcc
 AR=ar
 ARFLAGS=rcs
 OPTS=-Ofast
-LDFLAGS= -lm -pthread 
-COMMON= -Iinclude/ -Isrc/
+LDFLAGS= -lm -pthread -lntcore -lwpiutil
+COMMON= -Iinclude/ -Isrc/ -I/usr/local/include/wpiutil -I/usr/local/include/ntcore
 CFLAGS=-Wall -Wno-unknown-pragmas -Wfatal-errors -fPIC
 
 ifeq ($(OPENMP), 1) 

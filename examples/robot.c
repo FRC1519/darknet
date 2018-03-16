@@ -1,5 +1,12 @@
+/*
+ * TODO Consider a C++ implementation now that it's cleanly separable from the
+ *      object detection AI network implementation, since C++ is better
+ *      supported by both OpenCV and NetworkTables
+ */
+
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <getopt.h>
 #include <pthread.h>
 #include <inttypes.h>
@@ -12,6 +19,7 @@
 #include <arpa/inet.h>
 #include <opencv2/core/core_c.h>
 #include <opencv2/videoio/videoio_c.h>
+#include <ntcore.h>
 
 #include "robot.h"
 
@@ -20,10 +28,13 @@ int opt_gpu = -1;
 int opt_replay = 0;
 int opt_broadcast = 0;
 int camera_dev = 0;
-char *robot_host = "10.15.19.5";
-char *oper_host = "10.15.19.2";
+int camera2_dev = -1;
+char *robot_host = "10.15.19.2";
+char *oper_host = "10.15.19.5";
 int video_port = 1190;
 int data_port = 5810;
+int cam_port = 1519;
+int cam2_port = 1520;
 int cap_width = 640;
 int cap_height = 480;
 char *cap_fps = "30/1";
@@ -36,6 +47,7 @@ char *stream_fps = "30/1";
 char *data_log_fn = NULL;
 FILE *data_log_fp = NULL;
 float thresh = .14; /* Threshold to be exceeded to be considered worth reporting */
+volatile int active_cam = 0;
 
 /* Synchronized access to image feed */
 void *next_image_data = NULL;
@@ -64,6 +76,7 @@ void parse_options(int argc, char **argv) {
         {"fps",           required_argument, NULL, 'f'},
         {"video",         required_argument, NULL, 'V'},
         {"camera",        required_argument, NULL, 'c'},
+        {"camera2",       required_argument, NULL, 'C'},
         {"bitrate",       required_argument, NULL, 'b'},
         {"stream-width",  required_argument, NULL, 's'},
         {"stream-height", required_argument, NULL, 'S'},
@@ -77,7 +90,7 @@ void parse_options(int argc, char **argv) {
 
     int long_index = 0;
     int opt;
-    while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:r:o:p:P:f:V:c:b:s:S:F:l:RBI:", long_opts, &long_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "h:i:t:a:W:H:r:o:p:P:f:V:c:C:b:s:S:F:l:RBI:", long_opts, &long_index)) != -1) {
         switch (opt) {
             case 'i': opt_gpu = atoi(optarg); break;
             case 't': thresh = atof(optarg); break;
@@ -90,6 +103,7 @@ void parse_options(int argc, char **argv) {
             case 'f': cap_fps = optarg; break;
             case 'V': video_filename = optarg; break;
             case 'c': camera_dev = atoi(optarg); break;
+            case 'C': camera2_dev = atoi(optarg); break;
             case 'b': bitrate = atoi(optarg); break;
             case 's': stream_width = atoi(optarg); break;
             case 'S': stream_height = atoi(optarg); break;
@@ -205,6 +219,81 @@ void notify_objects(object_location *objects, int frame) {
         fflush(data_log_fp);
 }
 
+/* Set the active camera */
+void change_camera(int camera) {
+    /* Switch source of frames */
+    active_cam = camera == 1 ? 1 : 0;
+
+    /* TODO Change firewall rules */
+    int good_port, bad_port;
+    if (active_cam == 0) {
+        good_port = cam_port;
+        bad_port = cam2_port;
+    } else {
+        good_port = cam2_port;
+        bad_port = cam_port;
+    }
+}
+
+/* Monitor Network Tables for changes to the active camera */
+void *camera_monitor(void *ptr) {
+    NT_Inst inst = NT_GetDefaultInstance();
+
+    const char *valname = NT_ENTRYNAME_CAMERA;
+
+    /* Connect to robot */
+    const char *myname = "Vision";
+    NT_SetNetworkIdentity(inst, myname, strlen(myname));
+    NT_StartClient(inst, robot_host, NT_DEFAULT_PORT);
+    while (!NT_IsConnected(inst)) {
+        printf("Waiting to connect to robot network tables server...\n");
+        sleep(5);
+    }
+    printf("Connected to robot network tables server\n");
+
+    /* TODO Initial check of value */
+
+    /* Configure listener to receive updates from robot */
+    NT_EntryListenerPoller poller = NT_CreateEntryListenerPoller(inst);
+    NT_Entry entry = NT_GetEntry(inst, valname, strlen(valname));
+    int poll_flags = NT_NOTIFY_IMMEDIATE | NT_NOTIFY_NEW | NT_NOTIFY_UPDATE;
+    NT_AddPolledEntryListenerSingle(poller, entry, poll_flags);
+
+    /* Monitor for changes */
+    size_t len;
+    double timeout = 10.0;
+    NT_Bool timed_out;
+    struct NT_EntryNotification *notification;
+    while (!done) {
+        printf("Polling for Network Table update...\n");
+        notification = NT_PollEntryListenerTimeout(poller, &len, timeout, &timed_out);
+        if (timed_out) {
+            printf("No network tables update received before timeout\n");
+            if (!NT_IsConnected(inst)) {
+                fprintf(stderr, "Network tables are no longer connected to the robot\n");
+                done = 1;
+                return NULL;
+            }
+            continue;
+        }
+
+        /* Extract camera index from entry */
+        double vDouble;
+        uint64_t timestamp;
+        if (!NT_GetValueDouble(&notification->value, &timestamp, &vDouble)) {
+            fprintf(stderr, "Failed to get double value from network table entry\n");
+            continue;
+        }
+        int value = (int)(vDouble + 0.5);
+        printf("Network table update at @%" PRIu64 "]: %d\n", timestamp, value);
+        NT_DisposeEntryNotification(notification);
+
+        /* Switch to the active camera */
+        change_camera(value);
+    }
+    //NT_DestroyEntryListenerPoller(poller);
+}
+
 /* Detected objects in frames as they are found */
 void *detect_thread_impl(void *ptr) {
     object_location objects[MAX_OBJECTS_PER_FRAME] = { 0 };
@@ -269,15 +358,19 @@ void *detect_thread_impl(void *ptr) {
 }
 
 /* Fetch all frames from OpenCV */
-void fetch_frames(CvCapture *cap) {
+void fetch_frames(CvCapture *cap1, CvCapture *cap2) {
     int frame = 0;
     int rv;
     IplImage *image;
     void *net_data;
     void *old_data;
+    CvCapture *cap;
 
     while (!done) {
         printf("Acquiring frame #%d\n", ++frame);
+
+        /* Select the active capture device */
+        cap = active_cam == 0 ? cap1 : cap2;
 
         /* This blocks until a frame is available, or EOS */
         image = cvQueryFrame(cap);
@@ -351,7 +444,11 @@ int main(int argc, char **argv) {
         }
     }
 
+    /* Default to the primary camera -- *before* we start streaming */
+    change_camera(active_cam);
+
     /* Build up GStreamer pipepline */
+    char *gstreamer_fmt = "uvch264src dev=/dev/video%d entropy=cabac post-previews=false rate-control=vbr initial-bitrate=%d peak-bitrate=%d average-bitrate=%d iframe-period=%d auto-start=true name=src src.vfsrc ! queue ! tee name=t ! queue ! image/jpeg, width=%d, height=%d, framerate=%s ! avimux ! filesink location=%s t. ! jpegdec ! videoconvert ! appsink src.vidsrc ! queue ! video/x-h264, width=%d, height=%d, framerate=%s, profile=high, stream-format=byte-stream ! h264parse ! video/x-h264, stream-format=avc ! rtph264pay ! udpsink host=%s port=%d bind-port=%d";
     char gstreamer_cmd[1024] = { '\0' };
     if (opt_replay) {
         char *ext = strrchr(video_filename, '.');
@@ -361,24 +458,46 @@ int main(int argc, char **argv) {
         else
             snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "filesrc location=%s ! avidemux ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, oper_host, video_port);
     } else {
-        snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "uvch264src dev=/dev/video%d entropy=cabac post-previews=false rate-control=vbr initial-bitrate=%d peak-bitrate=%d average-bitrate=%d iframe-period=%d auto-start=true name=src src.vfsrc ! queue ! tee name=t ! queue ! image/jpeg, width=%d, height=%d, framerate=%s ! avimux ! filesink location=%s t. ! jpegdec ! videoconvert ! appsink src.vidsrc ! queue ! video/x-h264, width=%d, height=%d, framerate=%s, profile=high, stream-format=byte-stream ! h264parse ! video/x-h264, stream-format=avc ! rtph264pay ! udpsink host=%s port=%d", camera_dev, bitrate, bitrate, bitrate, iframe_ms, cap_width, cap_height, cap_fps, video_filename, stream_width, stream_height, stream_fps, oper_host, video_port);
+        snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), gstreamer_fmt, camera_dev, bitrate, bitrate, bitrate, iframe_ms, cap_width, cap_height, cap_fps, video_filename, stream_width, stream_height, stream_fps, oper_host, video_port, cam_port);
     }
 
-    /* Use GStreamer to acquire video feed */
-    printf("Connecting to GStreamer (%s)...\n", gstreamer_cmd);
+    /* Use GStreamer to acquire video feeds */
+    printf("Connecting to primary camera with GStreamer (%s)...\n", gstreamer_cmd);
     CvCapture *cap = cvCreateFileCaptureWithPreference(gstreamer_cmd, CV_CAP_GSTREAMER);
-    if (!cap) {
-        fprintf(stderr, "Couldn't connect to GStreamer\n");
+    if (cap == NULL) {
+        fprintf(stderr, "Couldn't connect to primary camera with GStreamer\n");
         exit(1);
+    }
+
+    /* If using a second camera, also acquire that feed */
+    CvCapture *cap2 = NULL;
+    if (camera2_dev >= 0) {
+        snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), gstreamer_fmt, camera2_dev, bitrate, bitrate, bitrate, iframe_ms, cap_width, cap_height, cap_fps, video_filename, stream_width, stream_height, stream_fps, oper_host, video_port, cam2_port);
+        printf("Connecting to secondary camera with GStreamer (%s)...\n", gstreamer_cmd);
+        cap2 = cvCreateFileCaptureWithPreference(gstreamer_cmd, CV_CAP_GSTREAMER);
+        if (cap2 == NULL) {
+            fprintf(stderr, "Couldn't connect to secondary camera with GStreamer\n");
+            exit(1);
+        }
     }
     printf("Connected to GStreamer\n");
 
-    /* Kick off the Darknet magic */
-    printf("Preparing network...\n");
+    /* Kick off the AI network magic */
+    printf("Preparing object detection network...\n");
     net_prepare(opt_gpu);
 
     /* Prepare the IP network */
     ip_network_init();
+
+    /* Start camera monitor asynchronously */
+    pthread_t camera_thread;
+    if (camera2_dev >= 0) {
+        printf("Starting camera monitor thread...\n");
+        if (pthread_create(&camera_thread, NULL, camera_monitor, NULL)) {
+            fprintf(stderr, "Thread creation failed\n");
+            exit(1);
+        }
+    }
 
     /* Start detector asynchronously */
     pthread_t detect_thread;
@@ -390,12 +509,16 @@ int main(int argc, char **argv) {
 
     /* Process all of the frames */
     printf("Fetching frames from source...\n");
-    fetch_frames(cap);
+    fetch_frames(cap, cap2);
 
     /* Clean up */
     printf("Waiting for termination...\n");
     pthread_join(detect_thread, 0);
+    if (camera2_dev >= 0)
+        pthread_join(camera_thread, 0);
     cvReleaseCapture(&cap);
+    if (cap2 != NULL)
+        cvReleaseCapture(&cap2);
     if (data_log_fp != NULL)
         fclose(data_log_fp);
 

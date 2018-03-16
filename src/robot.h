@@ -1,3 +1,10 @@
+#ifndef _ROBOT_H_INCLUDED
+#define _ROBOT_H_INCLUDED
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <opencv2/core/types_c.h>
 
@@ -39,6 +46,8 @@ typedef struct object_location {
     float probability;
 } object_location;
 
+#define NT_ENTRYNAME_CAMERA "/SmartDashboard/Active Camera"
+
 #define MAX_OBJECTS_PER_FRAME 20
 
 #define MAYHEM_MAGIC 0x1519B0B4
@@ -65,3 +74,9 @@ void  net_prepare(int gpu_idx);
 void *net_get_image_data(IplImage *cv_image);
 void  net_free_image_data(void *image_data);
 int   net_process_image(void *image_data, float thresh, object_location *objects);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif
+
+#endif  /* _ROBOT_H_INCLUDED */
