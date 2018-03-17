@@ -221,10 +221,13 @@ void notify_objects(object_location *objects, int frame) {
 
 /* Set the active camera */
 void change_camera(int camera) {
+    char cmd[255];
+    int rv;
+
     /* Switch source of frames */
     active_cam = camera == 1 ? 1 : 0;
 
-    /* TODO Change firewall rules */
+    /* Determine the port to block and the port to allow */
     int good_port, bad_port;
     if (active_cam == 0) {
         good_port = cam_port;
@@ -233,6 +236,24 @@ void change_camera(int camera) {
         good_port = cam2_port;
         bad_port = cam_port;
     }
+
+    /*
+     * NOTE: There is no good interface to iptables.  There's libiptc, but it's
+     * not stable.  It's also very low level.  Therefore, just use system().
+     * It's fast enough.
+     */
+
+    /* First, stop the camera stream that's not active */
+    snprintf(cmd, sizeof(cmd), "/sbin/iptables -A OUTPUT -p udp --sport %d -j DROP", bad_port);
+    rv = system(cmd);
+    if (rv == 0)
+        fprintf(stderr, "WARNING: Failed to limit traffic from port %d\n", bad_port);
+
+    /* Second, allow the camera stream that's now active */
+    snprintf(cmd, sizeof(cmd), "/sbin/iptables -D OUTPUT -p udp --sport %d -j DROP", good_port);
+    rv = system(cmd);
+    if (rv == 0)
+        fprintf(stderr, "WARNING: Failed to limit traffic from port %d\n", bad_port);
 }
 
 /* Monitor Network Tables for changes to the active camera */
@@ -251,13 +272,23 @@ void *camera_monitor(void *ptr) {
     }
     printf("Connected to robot network tables server\n");
 
-    /* TODO Initial check of value */
-
     /* Configure listener to receive updates from robot */
     NT_EntryListenerPoller poller = NT_CreateEntryListenerPoller(inst);
     NT_Entry entry = NT_GetEntry(inst, valname, strlen(valname));
     int poll_flags = NT_NOTIFY_IMMEDIATE | NT_NOTIFY_NEW | NT_NOTIFY_UPDATE;
     NT_AddPolledEntryListenerSingle(poller, entry, poll_flags);
+
+    /* Handle the current value */
+    uint64_t timestamp;
+    double vDouble;
+    int value;
+    if (NT_GetEntryDouble(entry, &timestamp, &vDouble)) {
+        value = (int)(vDouble + 0.5);
+        printf("Network table original value at @%" PRIu64 "]: %d\n", timestamp, value);
+        change_camera(value);
+    } else {
+        fprintf(stderr, "NOTE: Unable to get initial camera selection\n");
+    }
 
     /* Monitor for changes */
     size_t len;
@@ -278,20 +309,21 @@ void *camera_monitor(void *ptr) {
         }
 
         /* Extract camera index from entry */
-        double vDouble;
-        uint64_t timestamp;
         if (!NT_GetValueDouble(&notification->value, &timestamp, &vDouble)) {
             fprintf(stderr, "Failed to get double value from network table entry\n");
             continue;
         }
-        int value = (int)(vDouble + 0.5);
+        value = (int)(vDouble + 0.5);
         printf("Network table update at @%" PRIu64 "]: %d\n", timestamp, value);
         NT_DisposeEntryNotification(notification);
 
         /* Switch to the active camera */
         change_camera(value);
     }
-    //NT_DestroyEntryListenerPoller(poller);
+    
+    /* Clean up and exit */
+    NT_DestroyEntryListenerPoller(poller);
+    return NULL;
 }
 
 /* Detected objects in frames as they are found */
@@ -445,7 +477,8 @@ int main(int argc, char **argv) {
     }
 
     /* Default to the primary camera -- *before* we start streaming */
-    change_camera(active_cam);
+    if (camera2_dev >= 0)
+        change_camera(active_cam);
 
     /* Build up GStreamer pipepline */
     char *gstreamer_fmt = "uvch264src dev=/dev/video%d entropy=cabac post-previews=false rate-control=vbr initial-bitrate=%d peak-bitrate=%d average-bitrate=%d iframe-period=%d auto-start=true name=src src.vfsrc ! queue ! tee name=t ! queue ! image/jpeg, width=%d, height=%d, framerate=%s ! avimux ! filesink location=%s t. ! jpegdec ! videoconvert ! appsink src.vidsrc ! queue ! video/x-h264, width=%d, height=%d, framerate=%s, profile=high, stream-format=byte-stream ! h264parse ! video/x-h264, stream-format=avc ! rtph264pay ! udpsink host=%s port=%d bind-port=%d";
