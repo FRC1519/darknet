@@ -31,6 +31,20 @@ else
     robot_ip="10.15.19.2"
 fi
 
+# Detect which camera is where
+declare cam1=/sys/devices/3530000.xhci/usb1/1-2/1-2:1.0/video4linux/video*
+cam1=${cam1##*/video}
+if [[ $cam1 == "*" ]]; then
+    echo "Failed to find primary camera"
+    exit 1
+fi
+declare cam2=/sys/devices/3530000.xhci/usb1/1-1/1-1:1.0/video4linux/video*
+cam2=${cam2##*/video}
+if [[ $cam2 == "*" ]]; then
+    echo "Failed to find primary camera"
+    exit 1
+fi
+
 # Set file locations
 declare -r -a cfg_files=("$share/obj.data" "$share/tiny-yolo-obj.cfg" "$share/tiny-yolo-obj.backup")
 declare -r timestamp=$(date --iso-8601=seconds)
