@@ -14,7 +14,7 @@ declare -r bitrate=500000
 declare -r stream_fps="5/1"
 declare -r stream_width="432"
 declare -r stream_height="240"
-declare -r iframe="2500" # in ms
+declare -r iframe="1000" # in ms
 
 # Determine IP addresses to use
 declare -r netdev="eth0"
@@ -32,13 +32,13 @@ else
 fi
 
 # Detect which camera is where
-declare cam1=/sys/devices/3530000.xhci/usb1/1-2/1-2:1.0/video4linux/video*
+declare cam1=(/sys/devices/3530000.xhci/usb1/1-2/1-2:1.0/video4linux/video*)
 cam1=${cam1##*/video}
 if [[ $cam1 == "*" ]]; then
     echo "Failed to find primary camera"
     exit 1
 fi
-declare cam2=/sys/devices/3530000.xhci/usb1/1-1/1-1:1.0/video4linux/video*
+declare cam2=(/sys/devices/3530000.xhci/usb1/1-1/1-1:1.0/video4linux/video*)
 cam2=${cam2##*/video}
 if [[ $cam2 == "*" ]]; then
     echo "Failed to find primary camera"
@@ -60,4 +60,5 @@ ulimit -c unlimited
 
 # Run robot vision program
 cd "$share"
-"$bin"/robot --gpu 0 --thresh "$threshold" --fps "$cap_fps" --stream-width "$stream_width" --stream-height "$stream_height" --stream-fps "$stream_fps" --bitrate "$bitrate" --iframe "$iframe" --oper-ip "$oi_ip" --robot-ip "$robot_ip" --video "$video" --data-log "$datalog" "${cfg_files[@]}"
+export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
+"$bin"/robot --gpu 0 --thresh "$threshold" --camera "$cam1" --camera2 "$cam2" --fps "$cap_fps" --stream-width "$stream_width" --stream-height "$stream_height" --stream-fps "$stream_fps" --bitrate "$bitrate" --iframe "$iframe" --oper-ip "$oi_ip" --robot-ip "$robot_ip" --video "$video" --data-log "$datalog" "${cfg_files[@]}"

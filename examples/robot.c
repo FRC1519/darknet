@@ -258,6 +258,7 @@ void change_camera(int camera) {
 
 /* Monitor Network Tables for changes to the active camera */
 void *camera_monitor(void *ptr) {
+#if 0
     NT_Inst inst = NT_GetDefaultInstance();
 
     const char *valname = NT_ENTRYNAME_CAMERA;
@@ -324,6 +325,18 @@ void *camera_monitor(void *ptr) {
     /* Clean up and exit */
     NT_DestroyEntryListenerPoller(poller);
     return NULL;
+#else
+    int value = 0;
+    while (!done) {
+        struct timespec ts = { .tv_sec = 5, .tv_nsec = 300000000 };
+        printf("\n\n\n\t\tSLEEPING\n\n\n");
+        nanosleep(&ts, NULL);
+        value = (value + 1) % 2;
+        printf("\n\n\n\t\tCHANGING CAM ====> %d <====\n\n\n");
+        change_camera(value);
+    }
+    return NULL;
+#endif
 }
 
 /* Detected objects in frames as they are found */
@@ -481,7 +494,7 @@ int main(int argc, char **argv) {
         change_camera(active_cam);
 
     /* Build up GStreamer pipepline */
-    char *gstreamer_fmt = "uvch264src dev=/dev/video%d entropy=cabac post-previews=false rate-control=vbr initial-bitrate=%d peak-bitrate=%d average-bitrate=%d iframe-period=%d auto-start=true name=src src.vfsrc ! queue ! tee name=t ! queue ! image/jpeg, width=%d, height=%d, framerate=%s ! avimux ! filesink location=%s t. ! jpegdec ! videoconvert ! appsink src.vidsrc ! queue ! video/x-h264, width=%d, height=%d, framerate=%s, profile=high, stream-format=byte-stream ! h264parse ! video/x-h264, stream-format=avc ! rtph264pay ! udpsink host=%s port=%d bind-port=%d";
+    char *gstreamer_fmt = "uvch264src device=/dev/video%d entropy=cabac post-previews=false rate-control=vbr initial-bitrate=%d peak-bitrate=%d average-bitrate=%d iframe-period=%d auto-start=true name=src src.vfsrc ! queue ! tee name=t ! queue ! image/jpeg, width=%d, height=%d, framerate=%s ! avimux ! filesink location=%s t. ! jpegdec ! videoconvert ! appsink src.vidsrc ! queue ! video/x-h264, width=%d, height=%d, framerate=%s, profile=high, stream-format=byte-stream ! h264parse ! video/x-h264, stream-format=avc ! rtph264pay ! udpsink host=%s port=%d bind-port=%d";
     char gstreamer_cmd[1024] = { '\0' };
     if (opt_replay) {
         char *ext = strrchr(video_filename, '.');
@@ -491,7 +504,13 @@ int main(int argc, char **argv) {
         else
             snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), "filesrc location=%s ! avidemux ! tee name=t ! queue ! rtpjpegpay ! udpsink host=%s port=%d t. ! jpegdec ! videoconvert ! appsink", video_filename, oper_host, video_port);
     } else {
-        snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), gstreamer_fmt, camera_dev, bitrate, bitrate, bitrate, iframe_ms, cap_width, cap_height, cap_fps, video_filename, stream_width, stream_height, stream_fps, oper_host, video_port, cam_port);
+        char buf[512];
+        if (strchr(video_filename, '%') != NULL) {
+            snprintf(buf, sizeof(buf), video_filename, 0);
+        } else {
+            strncpy(buf, video_filename, sizeof(buf));
+        }
+        snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), gstreamer_fmt, camera_dev, bitrate, bitrate, bitrate, iframe_ms, cap_width, cap_height, cap_fps, buf, stream_width, stream_height, stream_fps, oper_host, video_port, cam_port);
     }
 
     /* Use GStreamer to acquire video feeds */
@@ -505,7 +524,13 @@ int main(int argc, char **argv) {
     /* If using a second camera, also acquire that feed */
     CvCapture *cap2 = NULL;
     if (camera2_dev >= 0) {
-        snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), gstreamer_fmt, camera2_dev, bitrate, bitrate, bitrate, iframe_ms, cap_width, cap_height, cap_fps, video_filename, stream_width, stream_height, stream_fps, oper_host, video_port, cam2_port);
+        char buf[512];
+        if (strchr(video_filename, '%') != NULL) {
+            snprintf(buf, sizeof(buf), video_filename, 1);
+        } else {
+            strncpy(buf, video_filename, sizeof(buf));
+        }
+        snprintf(gstreamer_cmd, sizeof(gstreamer_cmd), gstreamer_fmt, camera2_dev, bitrate, bitrate, bitrate, iframe_ms, cap_width, cap_height, cap_fps, buf, stream_width, stream_height, stream_fps, oper_host, video_port, cam2_port);
         printf("Connecting to secondary camera with GStreamer (%s)...\n", gstreamer_cmd);
         cap2 = cvCreateFileCaptureWithPreference(gstreamer_cmd, CV_CAP_GSTREAMER);
         if (cap2 == NULL) {
