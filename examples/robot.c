@@ -258,7 +258,7 @@ void change_camera(int camera) {
 
 /* Monitor Network Tables for changes to the active camera */
 void *camera_monitor(void *ptr) {
-#if 0
+#ifndef RANDOM_CAMERA_SWITCH
     NT_Inst inst = NT_GetDefaultInstance();
 
     const char *valname = NT_ENTRYNAME_CAMERA;
@@ -325,7 +325,7 @@ void *camera_monitor(void *ptr) {
     /* Clean up and exit */
     NT_DestroyEntryListenerPoller(poller);
     return NULL;
-#else
+#else /* RANDOM_CAMERA_SWITCH */
     int value = 0;
     while (!done) {
         struct timespec ts = { .tv_sec = 5, .tv_nsec = 300000000 };
@@ -336,7 +336,7 @@ void *camera_monitor(void *ptr) {
         change_camera(value);
     }
     return NULL;
-#endif
+#endif /* RANDOM_CAMERA_SWITCH */
 }
 
 /* Detected objects in frames as they are found */
