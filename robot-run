@@ -15,6 +15,7 @@ declare -r stream_fps="5/1"
 declare -r stream_width="432"
 declare -r stream_height="240"
 declare -r iframe="1000" # in ms
+declare -r -i cap_avg_frame=81 # in KB, for space computation
 
 # Determine IP addresses to use
 declare -r netdev="eth0"
@@ -51,6 +52,15 @@ declare -r timestamp=$(date --iso-8601=seconds)
 declare -r video="$var/capture-$timestamp.avi"
 declare -r datalog="$var/datalog-$timestamp.csv"
 declare -r netlog="$var/network-$timestamp.csv"
+
+# Check disk space
+declare -r -i req_minutes=15 # How many minutes we should be able record
+declare -r -i min_space=$((cap_avg_frame * cap_fps * 2 * 60 * req_minutes))
+declare -r -i free_space=$(df -k "$var" | awk 'NR==2 {print $4}')
+if [[ $free_space -lt $min_space ]]; then
+    echo "ERROR: Not enough free space.  Need $min_space KB, only have $free_space KB" >&2
+    exit 1
+fi
 
 # Start the network logger
 "$bin"/netlog "$netdev" "$netlog" &
