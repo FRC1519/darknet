@@ -309,10 +309,9 @@ void *camera_monitor(void *ptr) {
         notification = NT_PollEntryListenerTimeout(poller, &len, timeout, &timed_out);
         if (timed_out) {
             printf("No network tables update received before timeout\n");
-            if (!NT_IsConnected(inst)) {
-                fprintf(stderr, "Network tables are no longer connected to the robot\n");
-                done = 1;
-                return NULL;
+            while (!NT_IsConnected(inst)) {
+                printf("Waiting to re-connect to robot network tables server...\n");
+                sleep(1);
             }
             continue;
         }
