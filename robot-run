@@ -13,10 +13,10 @@ declare -r coredir=$var
 # Set video configuration
 declare -r threshold="0.15"
 declare -r cap_fps="15/1"
-declare -r bitrate=500000
+declare -r bitrate=250000
 declare -r stream_fps="5/1"
-declare -r stream_width="432"
-declare -r stream_height="240"
+declare -r stream_width="320" #"432"
+declare -r stream_height="180" #"240"
 declare -r iframe="1000" # in ms
 declare -r -i cap_avg_frame=81 # in KB, for space computation
 
