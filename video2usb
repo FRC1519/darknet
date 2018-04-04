@@ -1,0 +1,33 @@
+#!/bin/bash
+#declare usbdev_default='/dev/disk/by-label/Ubuntu\x2016.04.4\x20LTS\x20amd64'
+declare usbdev_default='/dev/disk/by-label/ADATA\x20UFD'
+declare usbdev=${1:-$usbdev_default}
+declare srcdir='/var/local/robot'
+declare altmnt='/mnt'
+
+function die() {
+    printf 'ERROR: %s\n' "$@" >&2
+    exit 1
+}
+
+# Find device
+[[ -e $usbdev ]] || die "USB device not found"
+usbdev=$(readlink -f "$usbdev")
+[[ $usbdev && -e $usbdev ]] || die "Failed to resolve device"
+
+# Find or mount
+declare mntpt=$(awk "\$1==\"$usbdev\"{print \$2}" /proc/mounts)
+mntpt=${mntpt//\\040/ }
+if [[ ! $mntpt ]]; then
+    mntpt=$altmnt
+    sudo mount "$usbdev" "$mntpt" || die "Failed to mount $usbdev onto $mntpt"
+fi
+
+mv -v "$srcdir/"* "$mntpt/"
+sync
+
+if [[ $mntpt == $altmnt ]]; then
+    sudo umount "$mntpt"
+fi
+
+exit 0

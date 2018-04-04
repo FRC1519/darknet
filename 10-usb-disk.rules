@@ -1,0 +1,1 @@
+KERNEL=="sd*", ACTION=="add", DEVPATH=="/devices/3530000.xhci/usb2/2-1/2-1.1/2-1.1:1.0/*", ENV{DEVTYPE}=="partition", RUN+="/usr/local/bin/video2usb $devnode"
