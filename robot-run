@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# TODO Determine which camera is which
-
 # Set directories
 declare -r bin=$(readlink -m "$(dirname "${BASH_SOURCE[0]}")")
 declare -r share=$(readlink -m "$bin/../share/robot")
@@ -20,11 +18,29 @@ declare -r stream_height="180" #"240"
 declare -r iframe="1000" # in ms
 declare -r -i cap_avg_frame=81 # in KB, for space computation
 
-# Ensure root access
-if [[ $(id -u) != 0 ]]; then
-    echo "Running as root is required" >&2
+# Exit with an error
+function die() {
+    printf 'ERROR: %s\n' "$@" >&2
     exit 1
-fi
+}
+
+# Kill a running process
+function killit() {
+    declare prog=$1
+    declare -i cnt=0
+
+    pgrep -x "$prog" &>/dev/null && echo "Stopping previous instance of $prog ..." && pkill -x "$prog" && sleep 0.5
+    pgrep -x "$prog" &>/dev/null && echo "Killing previous instance of $prog ..." && pkill -x --signal KILL "$prog"
+    while pgrep -x "$prog" &>/dev/null; do
+        [[ $cnt -lt 10 ]] || die "Gave up waiting for $prog to die"
+        sleep 0.5
+        cnt+=1
+    done
+    return 0
+}
+
+# Ensure root access
+[[ $(id -u) == 0 ]] || die "Running as root is required"
 
 # Determine IP addresses to use
 declare -r netdev="eth0"
@@ -53,15 +69,9 @@ else
     cam2=(/sys/devices/3530000.xhci/usb1/1-1/1-1:1.0/video4linux/video*)
 fi
 cam1=${cam1##*/video}
-if [[ $cam1 == "*" ]]; then
-    echo "Failed to find primary camera"
-    exit 1
-fi
+[[ $cam1 != "*" ]] || die "Failed to find primary camera"
 cam2=${cam2##*/video}
-if [[ $cam2 == "*" ]]; then
-    echo "Failed to find secondary camera"
-    exit 1
-fi
+[[ $cam2 != "*" ]] || die "Failed to find secondary camera"
 
 # Set file locations
 declare -r -a cfg_files=("$share/obj.data" "$share/tiny-yolo-obj.cfg" "$share/tiny-yolo-obj.backup")
@@ -69,23 +79,26 @@ declare -r timestamp=$(date --iso-8601=seconds | tr -d :)
 declare -r video="$var/capture-cam%d-$timestamp.avi"
 declare -r datalog="$var/datalog-$timestamp.csv"
 declare -r netlog="$var/network-$timestamp.csv"
+declare -r iperflog="$var/iperf-$timestamp.txt"
+declare -r iperfjsonlog="$var/iperf-$timestamp.json"
 
 # Check disk space
 declare -r -i req_minutes=15 # How many minutes we should be able record
 declare -r -i min_space=$((cap_avg_frame * cap_fps * 2 * 60 * req_minutes))
 declare -r -i free_space=$(df -k "$var" | awk 'NR==2 {print $4}')
-if [[ $free_space -lt $min_space ]]; then
-    echo "ERROR: Not enough free space.  Need $min_space KB, only have $free_space KB" >&2
-    exit 1
-fi
+[[ $free_space -ge $min_space ]] || die "Not enough free space.  Need $min_space KB, only have $free_space KB"
 
 # Ensure that any previous instances have exited
-pgrep -x robot &>/dev/null && echo "Stopping previous instance..." && pkill -x robot && sleep 2
-pgrep -x robot &>/dev/null && echo "Killing previous instance..." && pkill -x -KILL robot && sleep 4
+killit robot
 
 # Start the network logger
-pgrep netlog &>/dev/null && pkill netlog && sleep 2
+killit netlog
 "$bin"/netlog "$netdev" "$netlog" &
+
+# Start the iperf server (one with JSON, one without, unless we settle on a preference)
+killit iperf3
+iperf3 --server --daemon --verbose --format k --logfile "$iperflog" --port 1188
+iperf3 --server --daemon --verbose --format k --json --logfile "$iperfjsonlog" --port 5808
 
 # We want core dumps! (if we crash)
 ulimit -c unlimited
