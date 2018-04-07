@@ -42,6 +42,13 @@ function killit() {
 # Ensure root access
 [[ $(id -u) == 0 ]] || die "Running as root is required"
 
+# Set the time if provided
+declare -r datetime=$1
+if [[ $datetime ]]; then
+    date --set="$datetime" || die "Failed to set time to '$datetime'"
+    hwclock --systohc || echo "WARNING: failed to set hardware clock" >&2
+fi
+
 # Determine IP addresses to use
 declare -r netdev="eth0"
 declare oi_ip
