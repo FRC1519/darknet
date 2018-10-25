@@ -20,13 +20,14 @@ EXEC=darknet
 OBJDIR=./obj/
 
 CC=gcc
-NVCC=/usr/local/cuda-8.0/bin/nvcc 
+NVCC=/usr/local/cuda-9.0/bin/nvcc 
 AR=ar
 ARFLAGS=rcs
 OPTS=-Ofast
 LDFLAGS= -lm -pthread -lntcore -lwpiutil
 COMMON= -Iinclude/ -Isrc/ -I/usr/local/include/wpiutil -I/usr/local/include/ntcore
-CFLAGS=-Wall -Wno-unknown-pragmas -Wfatal-errors -fPIC
+#CFLAGS=-Wall -Wno-unknown-pragmas -Wfatal-errors -fPIC -std=c++11
+CFLAGS=-Wall -Wno-unknown-pragmas -fPIC
 
 ifeq ($(OPENMP), 1) 
 CFLAGS+= -fopenmp
